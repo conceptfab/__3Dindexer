@@ -1,8 +1,4 @@
-1. Przycisk "Wybierz Folder" nie działa
-W pliku main.py w funkcji init_ui() brakuje połączenia sygnału:
-pythonself.select_folder_button.clicked.connect(self.select_work_directory)
-2. Biała strona przy pojedynczych plikach + automatyczne ładowanie
-W pliku templates/gallery_template.html usuń linię z ścieżką która psuje layout:
+Zmiany w pliku templates/gallery_template.html
 html<!DOCTYPE html>
 <html lang="pl">
   <head>
@@ -13,6 +9,7 @@ html<!DOCTYPE html>
   </head>
   <body>
     <div class="container">
+      <!-- TYLKO BREADCRUMB - bez nagłówka -->
       <div class="breadcrumb">
         {% for part in breadcrumb_parts %} {% if part.link %}
         <a href="{{ part.link }}">{{ part.name }}</a> <span>/</span>
@@ -21,15 +18,14 @@ html<!DOCTYPE html>
         {% endif %} {% endfor %}
       </div>
 
-      <!-- TYLKO NAGŁÓWEK - USUNIĘTO ŚCIEŻKĘ KTÓRA PSUŁA LAYOUT -->
-      <h1>{{ current_folder_display_name }}</h1>
+      <!-- USUNIĘTO NAGŁÓWEK H1 - mamy już ścieżkę w breadcrumb -->
 
       {% if subfolders %}
       <div class="section">
-        <h2>📁 Podfoldery ({{ subfolders|length }})</h2>
+        <!-- USUNIĘTO NAGŁÓWEK H2 - zbędny tekst -->
         <div class="subfolders-grid">
           {% for sf in subfolders %}
-          <div class="subfolder-item">
+          <div class="subfolder-item" onclick="window.location.href='{{ sf.link }}'">
             <div class="folder-icon">📁</div>
             <a href="{{ sf.link }}">{{ sf.name }}</a>
             <div class="folder-stats">
@@ -203,302 +199,72 @@ html<!DOCTYPE html>
     </script>
   </body>
 </html>
-3. Automatyczne ładowanie galerii przy starcie
-W pliku main.py dodaj automatyczne ładowanie w __init__():
-pythondef __init__(self):
-    super().__init__()
-    self.setWindowTitle("Skaner Folderów i Kreator Galerii")
-    self.setGeometry(100, 100, 1400, 900)
-    self.setMinimumSize(1200, 800)
+Zmiany w pliku templates/gallery_styles.css
+Dodaj style aby całe pudełko folderu było klikalne:
+css.subfolder-item {
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 16px;
+  text-align: center;
+  transition: var(--transition);
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  /* DODANO - całe pudełko jest klikalne */
+  text-decoration: none;
+}
 
-    self.current_work_directory = config_manager.get_work_directory()
-    self.scanner_thread = None
-    self.gallery_thread = None
-    self.current_gallery_root_html = None
+.subfolder-item:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 24px rgba(88, 166, 255, 0.15);
+  border-color: var(--accent);
+  background: var(--bg-quaternary);
+}
 
-    os.makedirs(self.GALLERY_CACHE_DIR, exist_ok=True)
-    self.init_ui()
-    self.update_status_label()
-    self.update_gallery_buttons_state()
-    
-    # AUTOMATYCZNE ŁADOWANIE GALERII PRZY STARCIE
-    if self.current_work_directory:
-        self.current_gallery_root_html = self.get_current_gallery_index_html()
-        if self.current_gallery_root_html and os.path.exists(self.current_gallery_root_html):
-            self.show_gallery_in_app()
-        self.update_folder_stats()
-4. Zawieszanie przy skanowaniu - dodaj timeout i obsługę błędów
-W pliku scanner_logic.py popraw funkcję process_folder():
-pythondef process_folder(folder_path, progress_callback=None):
-    """
-    Przetwarza pojedynczy folder: zbiera informacje i generuje index.json.
-    Rekursywnie wywołuje się dla podfolderów.
-    """
-    if progress_callback:
-        progress_callback(f"Przetwarzanie folderu: {folder_path}")
+.folder-icon {
+  font-size: 2rem;
+  margin-bottom: 8px;
+  /* DODANO - pointer cursor na ikonie */
+  cursor: pointer;
+}
 
-    # ZABEZPIECZENIE PRZED ZAWIESZENIEM
-    try:
-        # Sprawdź czy folder jest dostępny w rozsądnym czasie
-        if not os.path.exists(folder_path):
-            if progress_callback:
-                progress_callback(f"Folder nie istnieje: {folder_path}")
-            return
-            
-        if not os.access(folder_path, os.R_OK):
-            if progress_callback:
-                progress_callback(f"Brak dostępu do folderu: {folder_path}")
-            return
-    except Exception as e:
-        if progress_callback:
-            progress_callback(f"Błąd dostępu do folderu {folder_path}: {e}")
-        return
+.subfolder-item a {
+  color: var(--text-primary);
+  text-decoration: none;
+  font-weight: 500;
+  font-size: 0.95rem;
+  margin-bottom: 8px;
+  /* DODANO - pointer cursor na linku */
+  cursor: pointer;
+}
 
-    index_data = {
-        "folder_info": get_folder_stats(folder_path),
-        "files_with_previews": [],
-        "files_without_previews": [],
-        "other_images": []
-    }
+.subfolder-item:hover a {
+  color: var(--accent);
+}
 
-    all_items_in_dir = []
-    subdirectories = []
-    
-    try:
-        # TIMEOUT dla skanowania foldera - maksymalnie 30 sekund na folder
-        import signal
-        def timeout_handler(signum, frame):
-            raise TimeoutError(f"Timeout podczas skanowania {folder_path}")
-        
-        old_handler = signal.signal(signal.SIGALRM, timeout_handler)
-        signal.alarm(30)  # 30 sekund timeout
-        
-        try:
-            with os.scandir(folder_path) as entries:
-                for entry in entries:
-                    try:
-                        all_items_in_dir.append(entry.name)
-                        if entry.is_dir():
-                            subdirectories.append(entry.path)
-                        if progress_callback and len(all_items_in_dir) % 100 == 0:
-                            progress_callback(f"Przetworzono {len(all_items_in_dir)} plików w {folder_path}")
-                    except (OSError, PermissionError) as e:
-                        if progress_callback:
-                            progress_callback(f"Błąd dostępu do pliku {entry.name}: {e}")
-                        continue
-        finally:
-            signal.alarm(0)  # Wyłącz timeout
-            signal.signal(signal.SIGALRM, old_handler)
-            
-    except TimeoutError as e:
-        if progress_callback:
-            progress_callback(f"TIMEOUT: {e}")
-        return
-    except (OSError, PermissionError) as e:
-        if progress_callback:
-            progress_callback(f"Błąd dostępu do folderu {folder_path}: {e}")
-        return
+.folder-stats {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+  /* DODANO - pointer cursor na statystykach */
+  cursor: pointer;
+}
 
-    # Reszta funkcji bez zmian...
-    image_filenames = [f for f in all_items_in_dir if os.path.isfile(os.path.join(folder_path, f)) and f.lower().endswith(IMAGE_EXTENSIONS)]
-    other_filenames = [f for f in all_items_in_dir if os.path.isfile(os.path.join(folder_path, f)) and not f.lower().endswith(IMAGE_EXTENSIONS) and f.lower() != "index.json"]
+.folder-stats span {
+  background: var(--bg-primary);
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+Co zostało naprawione:
 
-    full_path_image_files = [os.path.join(folder_path, img_name) for img_name in image_filenames]
-    found_previews_paths = set()
+✅ Usunięto powtarzający się nagłówek H1 - zostaje tylko breadcrumb z pełną ścieżką
+✅ Usunięto zbędny nagłówek "📁 Podfoldery" - przyciski mówią same za siebie
+✅ Naprawiono kliknięcie folderów - dodano onclick="window.location.href='{{ sf.link }}'"
+✅ Całe pudełko folderu jest teraz klikalne - cursor pointer na wszystkich elementach
 
-    for file_name in other_filenames:
-        file_path = os.path.join(folder_path, file_name)
-        file_basename, _ = os.path.splitext(file_name)
-        
-        try:
-            file_size_bytes = os.path.getsize(file_path)
-        except OSError:
-            file_size_bytes = 0
-
-        file_info = {
-            "name": file_name,
-            "path_absolute": os.path.abspath(file_path),
-            "size_bytes": file_size_bytes,
-            "size_readable": get_file_size_readable(file_size_bytes)
-        }
-
-        preview_file_path = find_matching_preview_for_file(file_basename, full_path_image_files)
-
-        if preview_file_path:
-            file_info["preview_found"] = True
-            file_info["preview_name"] = os.path.basename(preview_file_path)
-            file_info["preview_path_absolute"] = os.path.abspath(preview_file_path)
-            index_data["files_with_previews"].append(file_info)
-            found_previews_paths.add(preview_file_path)
-        else:
-            file_info["preview_found"] = False
-            index_data["files_without_previews"].append(file_info)
-            
-    # Dodaj obrazy, które nie zostały sparowane jako podglądy
-    for img_name in image_filenames:
-        img_path_full = os.path.join(folder_path, img_name)
-        if img_path_full not in found_previews_paths:
-            try:
-                img_size_bytes = os.path.getsize(img_path_full)
-            except OSError:
-                img_size_bytes = 0
-            
-            index_data["other_images"].append({
-                "name": img_name,
-                "path_absolute": os.path.abspath(img_path_full),
-                "size_bytes": img_size_bytes,
-                "size_readable": get_file_size_readable(img_size_bytes)
-            })
-
-    # Zapisz index.json
-    index_json_path = os.path.join(folder_path, "index.json")
-    try:
-        with open(index_json_path, "w", encoding="utf-8") as f:
-            json.dump(index_data, f, indent=4, ensure_ascii=False)
-        if progress_callback:
-            progress_callback(f"Zapisano: {index_json_path}")
-    except IOError as e:
-        if progress_callback:
-            progress_callback(f"Błąd zapisu {index_json_path}: {e}")
-
-    # Przetwarzaj podfoldery
-    for subdir in subdirectories:
-        try:
-            process_folder(subdir, progress_callback)
-        except Exception as e:
-            if progress_callback:
-                progress_callback(f"Błąd przetwarzania podfolderu {subdir}: {e}")
-            continue
-5. Poprawiony init_ui() z działającym przyciskiem
-pythondef init_ui(self):
-    main_widget = QWidget(self)
-    self.setCentralWidget(main_widget)
-    main_layout = QVBoxLayout(main_widget)
-
-    # Górny panel kontrolny
-    controls_widget = QWidget()
-    controls_layout = QVBoxLayout(controls_widget)
-    
-    # Sekcja wyboru folderu
-    folder_layout = QHBoxLayout()
-    self.folder_label = QLabel("Folder roboczy: Brak")
-    folder_layout.addWidget(self.folder_label, 1)
-    
-    self.select_folder_button = QPushButton("📁 Wybierz Folder")
-    self.select_folder_button.setStyleSheet("QPushButton { background-color: #4CAF50; color: white; font-weight: bold; }")
-    # NAPRAWIONE - DODANO POŁĄCZENIE SYGNAŁU
-    self.select_folder_button.clicked.connect(self.select_work_directory)
-    folder_layout.addWidget(self.select_folder_button)
-    controls_layout.addLayout(folder_layout)
-
-    # Wszystkie przyciski akcji w jednym rzędzie
-    action_layout = QHBoxLayout()
-    
-    self.start_scan_button = QPushButton("🔍 Skanuj Foldery")
-    self.start_scan_button.setStyleSheet("QPushButton { background-color: #2196F3; color: white; }")
-    self.start_scan_button.clicked.connect(self.start_scan)
-    action_layout.addWidget(self.start_scan_button)
-    
-    self.rebuild_gallery_button = QPushButton("🔄 Przebuduj Galerię")
-    self.rebuild_gallery_button.setStyleSheet("QPushButton { background-color: #FF9800; color: white; }")
-    self.rebuild_gallery_button.clicked.connect(self.rebuild_gallery)
-    action_layout.addWidget(self.rebuild_gallery_button)
-
-    self.open_gallery_button = QPushButton("👁️ Pokaż Galerię")
-    self.open_gallery_button.setStyleSheet("QPushButton { background-color: #9C27B0; color: white; }")
-    self.open_gallery_button.clicked.connect(self.show_gallery_in_app)
-    action_layout.addWidget(self.open_gallery_button)
-
-    self.clear_gallery_cache_button = QPushButton("🗑️ Wyczyść Cache")
-    self.clear_gallery_cache_button.setStyleSheet("QPushButton { background-color: #F44336; color: white; }")
-    self.clear_gallery_cache_button.clicked.connect(self.clear_current_gallery_cache)
-    action_layout.addWidget(self.clear_gallery_cache_button)
-
-    self.cancel_button = QPushButton("❌ Anuluj")
-    self.cancel_button.setStyleSheet("QPushButton { background-color: #607D8B; color: white; }")
-    self.cancel_button.clicked.connect(self.cancel_operations)
-    self.cancel_button.setEnabled(False)
-    action_layout.addWidget(self.cancel_button)
-    
-    # Suwak rozmiaru kafelków
-    size_layout = QHBoxLayout()
-    size_layout.addWidget(QLabel("Rozmiar kafelków:"))
-    self.size_slider = QSlider(Qt.Orientation.Horizontal)
-    self.size_slider.setMinimum(150)
-    self.size_slider.setMaximum(350)
-    self.size_slider.setValue(200)
-    self.size_slider.valueChanged.connect(self.update_tile_size)
-    size_layout.addWidget(self.size_slider)
-    
-    self.size_label = QLabel("200px")
-    size_layout.addWidget(self.size_label)
-    action_layout.addLayout(size_layout)
-    
-    controls_layout.addLayout(action_layout)
-    main_layout.addWidget(controls_widget)
-
-    # Środkowy obszar: WebView
-    self.web_view = QWebEngineView()
-    self.web_view.setPage(CustomWebEnginePage(self.web_view))
-    self.web_view.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
-    self.web_view.urlChanged.connect(self.on_webview_url_changed)
-    main_layout.addWidget(self.web_view, 1)
-
-    # Dolny obszar: Logi i Statystyki obok siebie
-    bottom_layout = QHBoxLayout()
-    
-    # Logi - lewa połowa
-    self.log_output = QTextEdit()
-    self.log_output.setReadOnly(True)
-    self.log_output.setMaximumHeight(150)
-    bottom_layout.addWidget(self.log_output, 1)
-    
-    # Panel statystyk - prawa połowa z CIEMNYM TŁEM
-    self.stats_panel = QWidget()
-    self.stats_panel.setMaximumHeight(150)
-    self.stats_panel.setStyleSheet("""
-        QWidget { 
-            background-color: #21262d; 
-            border: 1px solid #30363d; 
-            border-radius: 8px;
-            color: #f0f6fc;
-        }
-        QLabel {
-            color: #f0f6fc;
-            padding: 2px;
-        }
-    """)
-    stats_layout = QVBoxLayout(self.stats_panel)
-    
-    self.stats_title = QLabel("📊 Statystyki aktualnego folderu")
-    self.stats_title.setStyleSheet("font-weight: bold; font-size: 14px; color: #58a6ff;")
-    stats_layout.addWidget(self.stats_title)
-    
-    self.stats_path = QLabel("Ścieżka: -")
-    self.stats_size = QLabel("Rozmiar: -")
-    self.stats_files = QLabel("Pliki: -")
-    self.stats_folders = QLabel("Foldery: -")
-    
-    stats_layout.addWidget(self.stats_path)
-    stats_layout.addWidget(self.stats_size)
-    stats_layout.addWidget(self.stats_files)
-    stats_layout.addWidget(self.stats_folders)
-    stats_layout.addStretch()
-    
-    bottom_layout.addWidget(self.stats_panel, 1)
-    
-    bottom_widget = QWidget()
-    bottom_widget.setLayout(bottom_layout)
-    bottom_widget.setMaximumHeight(150)
-    main_layout.addWidget(bottom_widget)
-
-    self.update_status_label()
-Główne naprawki:
-
-✅ Dodano połączenie przycisku "Wybierz Folder"
-✅ Usunięto linię z ścieżką która psuła layout CSS
-✅ Automatyczne ładowanie galerii przy starcie aplikacji
-✅ Timeout i obsługa błędów przy skanowaniu
-✅ Zabezpieczenia przed zawieszaniem się aplikacji
-
-Teraz wszystko powinno działać poprawnie!
+Teraz na górze będzie tylko jedna ścieżka w breadcrumb i foldery będą działać!
