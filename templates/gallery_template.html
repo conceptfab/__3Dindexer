@@ -1,172 +1,235 @@
 <!DOCTYPE html>
 <html lang="pl">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Galeria: {{ current_folder_display_name }}</title>
-    <link rel="stylesheet" href="{{ ' ../' * depth }}gallery_styles.css">
-    <style>
-        /* Basic styles, can be expanded in gallery_styles.css */
-        body { font-family: sans-serif; margin: 20px; background-color: #f4f4f4; color: #333; }
-        .container { max-width: 1600px; margin: auto; background-color: #fff; padding: 20px; border-radius: 8px; box-shadow: 0 0 10px rgba(0,0,0,0.1); }
-        h1, h2, h3 { color: #555; }
-        a { color: #007bff; text-decoration: none; }
-        a:hover { text-decoration: underline; }
-        .breadcrumb { margin-bottom: 20px; font-size: 1.1em; }
-        .breadcrumb a, .breadcrumb span { margin-right: 5px; }
-        .gallery-controls { margin-bottom: 20px; padding: 10px; background-color: #eee; border-radius: 4px; }
-        .gallery-controls label { margin-right: 10px; }
-        .gallery { display: flex; flex-wrap: wrap; gap: 15px; margin-bottom: 20px; }
-        .gallery-item {
-            border: 1px solid #ddd;
-            padding: 10px;
-            border-radius: 4px;
-            text-align: center;
-            background-color: #f9f9f9;
-            width: 150px; /* Default, controlled by JS */
-            overflow: hidden;
-        }
-        .gallery-item img {
-            max-width: 100%;
-            height: auto;
-            max-height: 120px; /* Default, adjust based on item width if needed */
-            display: block;
-            margin: 0 auto 10px auto;
-            object-fit: contain;
-            border: 1px solid #eee;
-        }
-        .gallery-item p { margin: 5px 0; font-size: 0.9em; word-wrap: break-word; }
-        .file-info { font-size: 0.8em; color: #777; }
-        .section { margin-bottom: 30px; }
-        .subfolders-list, .no-preview-list, .other-images-list { list-style-type: none; padding-left: 0; }
-        .subfolders-list li, .no-preview-list li, .other-images-list li {
-            padding: 8px;
-            border-bottom: 1px solid #eee;
-        }
-        .subfolders-list li:last-child, .no-preview-list li:last-child, .other-images-list li:last-child {
-            border-bottom: none;
-        }
-        .folder-stats { margin-top: 20px; padding: 10px; background-color: #e9f7fd; border-left: 5px solid #2196F3; }
-        .folder-stats p { margin: 5px 0; }
-    </style>
-</head>
-<body>
+    <link rel="stylesheet" href="{{ ' ../' * depth }}gallery_styles.css" />
+  </head>
+  <body>
     <div class="container">
-        <div class="breadcrumb">
-            {% for part in breadcrumb_parts %}
-                {% if part.link %}
-                    <a href="{{ part.link }}">{{ part.name }}</a> /
-                {% else %}
-                    <span>{{ part.name }}</span>
-                {% endif %}
-            {% endfor %}
-        </div>
-        <h1>Galeria: {{ current_folder_display_name }}</h1>
-        <p>Pełna ścieżka: {{ folder_info.path }}</p>
+      <div class="breadcrumb">
+        {% for part in breadcrumb_parts %} {% if part.link %}
+        <a href="{{ part.link }}">{{ part.name }}</a> / {% else %}
+        <span>{{ part.name }}</span>
+        {% endif %} {% endfor %}
+      </div>
+      <h1>Galeria: {{ current_folder_display_name }}</h1>
+      <p>Pełna ścieżka: {{ folder_info.path }}</p>
 
-        <div class="gallery-controls">
-            <label for="sizeSlider">Rozmiar miniaturki:</label>
-            <input type="range" id="sizeSlider" min="100" max="400" value="150">
-            <span id="sizeValue">150px</span>
-        </div>
+      <div class="gallery-controls">
+        <label for="sizeSlider">Rozmiar miniaturki:</label>
+        <input type="range" id="sizeSlider" min="100" max="400" value="150" />
+        <span id="sizeValue">150px</span>
+      </div>
 
-        {% if subfolders %}
-        <div class="section">
-            <h2>Podfoldery ({{ subfolders|length }})</h2>
-            <ul class="subfolders-list">
-                {% for sf in subfolders %}
-                <li>📁 <a href="{{ sf.link }}">{{ sf.name }}</a></li>
-                {% endfor %}
-            </ul>
+      {% if subfolders %}
+      <div class="section">
+        <h2>Podfoldery ({{ subfolders|length }})</h2>
+        <div class="subfolders-grid">
+          {% for sf in subfolders %}
+          <div class="subfolder-item">
+            <a href="{{ sf.link }}">📁 {{ sf.name }}</a>
+          </div>
+          {% endfor %}
         </div>
-        {% endif %}
-
-        {% if files_with_previews %}
-        <div class="section">
-            <h2>Pliki z podglądem ({{ files_with_previews|length }})</h2>
-            <div class="gallery" id="filesWithPreviewsGallery">
-                {% for file in files_with_previews %}
-                <div class="gallery-item">
-                    <a href="{{ file.archive_link }}" title="Otwórz plik: {{ file.name }}">
-                        <img src="{{ file.preview_relative_path }}" alt="Podgląd dla {{ file.name }}">
-                    </a>
-                    <p><a href="{{ file.archive_link }}" title="Otwórz plik: {{ file.name }}">{{ file.name }}</a></p>
-                    <p class="file-info">{{ file.size_readable }}</p>
-                </div>
-                {% endfor %}
-            </div>
+      </div>
+      {% endif %} {% if files_with_previews %}
+      <div class="section">
+        <h2>Pliki z podglądem ({{ files_with_previews|length }})</h2>
+        <div class="gallery" id="filesWithPreviewsGallery">
+          {% for file in files_with_previews %}
+          <div class="gallery-item">
+            <a
+              href="{{ file.archive_link }}"
+              title="Otwórz plik: {{ file.name }}"
+            >
+              {% if file.preview_relative_path %}
+              <img
+                src="{{ file.preview_relative_path }}"
+                alt="Podgląd dla {{ file.name }}"
+                class="preview-image"
+              />
+              {% else %}
+              <div
+                style="
+                  height: 140px;
+                  background: var(--bg-primary);
+                  display: flex;
+                  align-items: center;
+                  justify-content: center;
+                  border-radius: 8px;
+                "
+              >
+                <span>Brak podglądu</span>
+              </div>
+              {% endif %}
+            </a>
+            <p>
+              <a
+                href="{{ file.archive_link }}"
+                title="Otwórz plik: {{ file.name }}"
+                >{{ file.name }}</a
+              >
+            </p>
+            <p class="file-info">{{ file.size_readable }}</p>
+          </div>
+          {% endfor %}
         </div>
-        {% endif %}
-
-        {% if other_images %}
-        <div class="section">
-            <h2>Pozostałe obrazy (niebędące podglądami) ({{ other_images|length }})</h2>
-            <div class="gallery" id="otherImagesGallery">
-                {% for image in other_images %}
-                <div class="gallery-item">
-                     <a href="{{ image.file_link }}" title="Otwórz plik: {{ image.name }}">
-                        <img src="{{ image.image_relative_path }}" alt="{{ image.name }}">
-                     </a>
-                    <p><a href="{{ image.file_link }}" title="Otwórz plik: {{ image.name }}">{{ image.name }}</a></p>
-                    <p class="file-info">{{ image.size_readable }}</p>
-                </div>
-                {% endfor %}
-            </div>
+      </div>
+      {% endif %} {% if other_images %}
+      <div class="section">
+        <h2>Pozostałe obrazy ({{ other_images|length }})</h2>
+        <div class="gallery" id="otherImagesGallery">
+          {% for image in other_images %}
+          <div class="gallery-item">
+            <a
+              href="{{ image.file_link }}"
+              title="Otwórz plik: {{ image.name }}"
+            >
+              {% if image.image_relative_path %}
+              <img
+                src="{{ image.image_relative_path }}"
+                alt="{{ image.name }}"
+                class="preview-image"
+              />
+              {% else %}
+              <div
+                style="
+                  height: 140px;
+                  background: var(--bg-primary);
+                  display: flex;
+                  align-items: center;
+                  justify-content: center;
+                  border-radius: 8px;
+                "
+              >
+                <span>Błąd ładowania</span>
+              </div>
+              {% endif %}
+            </a>
+            <p>
+              <a
+                href="{{ image.file_link }}"
+                title="Otwórz plik: {{ image.name }}"
+                >{{ image.name }}</a
+              >
+            </p>
+            <p class="file-info">{{ image.size_readable }}</p>
+          </div>
+          {% endfor %}
         </div>
-        {% endif %}
+      </div>
+      {% endif %} {% if files_without_previews %}
+      <div class="section">
+        <h2>Pliki bez podglądu ({{ files_without_previews|length }})</h2>
+        <ul class="no-preview-list">
+          {% for file in files_without_previews %}
+          <li>
+            <a
+              href="{{ file.archive_link }}"
+              title="Otwórz plik: {{ file.name }}"
+              >{{ file.name }}</a
+            >
+            <span class="file-info"> ({{ file.size_readable }})</span>
+          </li>
+          {% endfor %}
+        </ul>
+      </div>
+      {% endif %}
 
-        {% if files_without_previews %}
-        <div class="section">
-            <h2>Pliki bez podglądu ({{ files_without_previews|length }})</h2>
-            <ul class="no-preview-list">
-                {% for file in files_without_previews %}
-                <li>
-                    <a href="{{ file.archive_link }}" title="Otwórz plik: {{ file.name }}">{{ file.name }}</a>
-                    <span class="file-info"> ({{ file.size_readable }})</span>
-                </li>
-                {% endfor %}
-            </ul>
-        </div>
-        {% endif %}
-
-        <div class="section folder-stats">
-            <h3>Statystyki folderu</h3>
-            <p>Całkowity rozmiar plików (bez index.json i podfolderów): {{ folder_info.total_size_readable }}</p>
-            <p>Liczba plików (bez index.json): {{ folder_info.file_count }}</p>
-            <p>Liczba podfolderów: {{ folder_info.subdir_count }}</p>
-        </div>
-
+      <div class="section folder-stats">
+        <h3>Statystyki folderu</h3>
+        <p>Całkowity rozmiar plików: {{ folder_info.total_size_readable }}</p>
+        <p>Liczba plików: {{ folder_info.file_count }}</p>
+        <p>Liczba podfolderów: {{ folder_info.subdir_count }}</p>
+      </div>
     </div>
 
     <script>
-        document.addEventListener('DOMContentLoaded', function () {
-            const slider = document.getElementById('sizeSlider');
-            const sizeValueDisplay = document.getElementById('sizeValue');
-            const galleries = [
-                document.getElementById('filesWithPreviewsGallery'),
-                document.getElementById('otherImagesGallery')
-            ].filter(Boolean); // Filter out nulls if a gallery doesn't exist
+      document.addEventListener('DOMContentLoaded', function () {
+        const slider = document.getElementById('sizeSlider');
+        const sizeValueDisplay = document.getElementById('sizeValue');
+        const galleries = [
+          document.getElementById('filesWithPreviewsGallery'),
+          document.getElementById('otherImagesGallery'),
+        ].filter(Boolean);
 
-            function updateThumbnailSize() {
-                const newSize = slider.value + 'px';
-                sizeValueDisplay.textContent = newSize;
-                galleries.forEach(gallery => {
-                    const items = gallery.querySelectorAll('.gallery-item');
-                    items.forEach(item => {
-                        item.style.width = newSize;
-                        const img = item.querySelector('img');
-                        if (img) {
-                            // Adjust max-height based on width for better aspect ratio, e.g. 80% of width
-                            img.style.maxHeight = (parseInt(slider.value) * 0.8) + 'px';
-                        }
-                    });
-                });
-            }
-            if (slider) {
-                 slider.addEventListener('input', updateThumbnailSize);
-                 updateThumbnailSize(); // Initial call
-            }
+        // Tworzenie overlay'a dla podglądu
+        const previewOverlay = document.createElement('div');
+        previewOverlay.className = 'preview-overlay';
+        previewOverlay.innerHTML = '<img src="" alt="Podgląd">';
+        document.body.appendChild(previewOverlay);
+
+        function updateThumbnailSize() {
+          const newSize = slider.value + 'px';
+          sizeValueDisplay.textContent = newSize;
+          galleries.forEach((gallery) => {
+            const items = gallery.querySelectorAll('.gallery-item');
+            items.forEach((item) => {
+              item.style.width = newSize;
+              const img = item.querySelector('img');
+              if (img) {
+                img.style.maxHeight = parseInt(slider.value) * 0.8 + 'px';
+              }
+            });
+          });
+        }
+
+        function showPreview(imageSrc, event) {
+          event.preventDefault();
+          event.stopPropagation();
+
+          const previewImg = previewOverlay.querySelector('img');
+          previewImg.src = imageSrc;
+          previewImg.style.maxWidth = '800px';
+          previewImg.style.maxHeight = '800px';
+
+          previewOverlay.classList.add('show');
+        }
+
+        function hidePreview() {
+          previewOverlay.classList.remove('show');
+        }
+
+        // Event listenery
+        if (slider) {
+          slider.addEventListener('input', updateThumbnailSize);
+          updateThumbnailSize();
+        }
+
+        // Podgląd na hover dla miniaturek
+        galleries.forEach((gallery) => {
+          const images = gallery.querySelectorAll('.preview-image');
+          images.forEach((img) => {
+            let hoverTimeout;
+
+            img.addEventListener('mouseenter', function (e) {
+              hoverTimeout = setTimeout(() => {
+                showPreview(this.src, e);
+              }, 300); // Opóźnienie 300ms
+            });
+
+            img.addEventListener('mouseleave', function () {
+              clearTimeout(hoverTimeout);
+              setTimeout(hidePreview, 100);
+            });
+          });
         });
+
+        // Ukryj podgląd po kliknięciu lub ESC
+        previewOverlay.addEventListener('click', hidePreview);
+        document.addEventListener('keydown', function (e) {
+          if (e.key === 'Escape') {
+            hidePreview();
+          }
+        });
+
+        // Hover na overlay też ukrywa
+        previewOverlay.addEventListener('mouseenter', function () {
+          setTimeout(hidePreview, 500);
+        });
+      });
     </script>
-</body>
+  </body>
 </html>
