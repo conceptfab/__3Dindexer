@@ -206,7 +206,6 @@ class MainWindow(QMainWindow):
         self.init_ui()
         self.update_status_label()
         self.update_gallery_buttons_state()
-        self.setup_theme_menu()
         self.setup_learning_bridge()
 
         if self.current_work_directory:
@@ -222,36 +221,17 @@ class MainWindow(QMainWindow):
             # Sprawdź oczekujące dopasowania po załadowaniu galerii
             QTimer.singleShot(1000, self.check_for_learning_matches)
 
-    def setup_theme_menu(self):
-        """Dodaje menu przełączania motywów."""
-        menubar = self.menuBar()
-        theme_menu = menubar.addMenu("Motyw")
-
-        dark_action = theme_menu.addAction("Ciemny")
-        light_action = theme_menu.addAction("Jasny")
-
-        dark_action.triggered.connect(lambda: self.change_theme("dark"))
-        light_action.triggered.connect(lambda: self.change_theme("light"))
-
-    def change_theme(self, theme):
-        """Zmienia motyw aplikacji."""
-        if theme not in ["dark", "light"]:
-            theme = "dark"  # Domyślny motyw
-        QApplication.instance().setStyleSheet(qdarktheme.load_stylesheet(theme))
-        config_manager.set_config_value("ui.theme", theme)
-
     def init_ui(self):
         main_widget = QWidget(self)
         self.setCentralWidget(main_widget)
         main_layout = QVBoxLayout(main_widget)
 
-        controls_widget = QWidget()
-        controls_layout = QVBoxLayout(controls_widget)
+        # Górny pasek z przyciskami
+        top_bar = QWidget()
+        top_layout = QHBoxLayout(top_bar)
+        top_layout.setContentsMargins(0, 0, 0, 0)
 
-        folder_layout = QHBoxLayout()
-        self.folder_label = QLabel("Folder roboczy: Brak")
-        folder_layout.addWidget(self.folder_label, 1)
-
+        # Przycisk Wybierz Folder
         self.select_folder_button = QPushButton("📁 Wybierz Folder")
         self.select_folder_button.setStyleSheet(
             """
@@ -266,28 +246,14 @@ class MainWindow(QMainWindow):
         """
         )
         self.select_folder_button.clicked.connect(self.select_work_directory)
-        folder_layout.addWidget(self.select_folder_button)
-        controls_layout.addLayout(folder_layout)
+        top_layout.addWidget(self.select_folder_button)
 
-        self.progress_bar = QProgressBar()
-        self.progress_bar.setVisible(False)
-        self.progress_bar.setStyleSheet(
-            """
-            QProgressBar {
-                border-radius: 4px;
-                text-align: center;
-                height: 20px;
-            }
-            QProgressBar::chunk {
-                border-radius: 4px;
-                background-color: #3daee9;
-            }
-        """
-        )
-        controls_layout.addWidget(self.progress_bar)
+        # Etykieta folderu roboczego
+        self.folder_label = QLabel("Folder roboczy: Brak")
+        self.folder_label.setStyleSheet("color: #ffffff;")
+        top_layout.addWidget(self.folder_label, 1)
 
-        action_layout = QHBoxLayout()
-
+        # Przycisk Skanuj Foldery
         self.start_scan_button = QPushButton("🔍 Skanuj Foldery")
         self.start_scan_button.setStyleSheet(
             """
@@ -299,8 +265,9 @@ class MainWindow(QMainWindow):
         """
         )
         self.start_scan_button.clicked.connect(self.start_scan)
-        action_layout.addWidget(self.start_scan_button)
+        top_layout.addWidget(self.start_scan_button)
 
+        # Przycisk Przebuduj Galerię
         self.rebuild_gallery_button = QPushButton("🔄 Przebuduj Galerię")
         self.rebuild_gallery_button.setStyleSheet(
             """
@@ -312,8 +279,9 @@ class MainWindow(QMainWindow):
         """
         )
         self.rebuild_gallery_button.clicked.connect(lambda: self.rebuild_gallery(True))
-        action_layout.addWidget(self.rebuild_gallery_button)
+        top_layout.addWidget(self.rebuild_gallery_button)
 
+        # Przycisk Pokaż Galerię
         self.open_gallery_button = QPushButton("👁️ Pokaż Galerię")
         self.open_gallery_button.setStyleSheet(
             """
@@ -325,8 +293,9 @@ class MainWindow(QMainWindow):
         """
         )
         self.open_gallery_button.clicked.connect(self.show_gallery_in_app)
-        action_layout.addWidget(self.open_gallery_button)
+        top_layout.addWidget(self.open_gallery_button)
 
+        # Przycisk Wyczyść Cache
         self.clear_gallery_cache_button = QPushButton("🗑️ Wyczyść Cache")
         self.clear_gallery_cache_button.setStyleSheet(
             """
@@ -343,82 +312,27 @@ class MainWindow(QMainWindow):
         self.clear_gallery_cache_button.clicked.connect(
             self.clear_current_gallery_cache
         )
-        action_layout.addWidget(self.clear_gallery_cache_button)
+        top_layout.addWidget(self.clear_gallery_cache_button)
 
-        self.cancel_button = QPushButton("❌ Anuluj")
-        self.cancel_button.setStyleSheet(
+        main_layout.addWidget(top_bar)
+
+        # Pasek postępu
+        self.progress_bar = QProgressBar()
+        self.progress_bar.setVisible(False)
+        self.progress_bar.setStyleSheet(
             """
-            QPushButton {
-                padding: 8px 16px;
-                border-radius: 6px;
-                font-weight: 500;
+            QProgressBar {
+                border-radius: 4px;
+                text-align: center;
+                height: 20px;
+            }
+            QProgressBar::chunk {
+                border-radius: 4px;
+                background-color: #3daee9;
             }
         """
         )
-        self.cancel_button.clicked.connect(self.cancel_operations)
-        action_layout.addWidget(self.cancel_button)
-
-        controls_layout.addLayout(action_layout)
-        main_layout.addWidget(controls_widget)
-
-        # Panel statystyk
-        self.stats_panel = QWidget()
-        self.stats_panel.setStyleSheet(
-            """
-            QWidget { 
-                background-color: rgba(255, 255, 255, 0.05);
-                border: 1px solid rgba(255, 255, 255, 0.1);
-                border-radius: 8px;
-                padding: 8px;
-            }
-            QLabel {
-                color: #ffffff;
-                padding: 4px;
-                background: transparent;
-            }
-        """
-        )
-        stats_layout = QVBoxLayout(self.stats_panel)
-
-        stats_header_layout = QHBoxLayout()
-
-        self.stats_title = QLabel("Statystyki folderu")
-        self.stats_title.setStyleSheet(
-            """
-            font-weight: bold; 
-            font-size: 14px; 
-            color: #3daee9;
-            background: transparent;
-        """
-        )
-        stats_header_layout.addWidget(self.stats_title)
-
-        # Dodaj przycisk odświeżania statystyk
-        self.refresh_stats_button = QPushButton("🔄")
-        self.refresh_stats_button.setToolTip("Odśwież statystyki")
-        self.refresh_stats_button.setFixedSize(24, 24)
-        self.refresh_stats_button.setStyleSheet(
-            """
-            QPushButton {
-                border: none;
-                background: transparent;
-                font-size: 12px;
-                padding: 2px;
-                border-radius: 12px;
-            }
-            QPushButton:hover {
-                background: rgba(61, 174, 233, 0.2);
-            }
-        """
-        )
-        self.refresh_stats_button.clicked.connect(self.debug_refresh_stats)
-        stats_header_layout.addWidget(self.refresh_stats_button)
-
-        stats_layout.addLayout(stats_header_layout)
-
-        self.stats_content = QLabel("Brak danych")
-        stats_layout.addWidget(self.stats_content)
-        main_layout.addWidget(self.stats_panel)
+        main_layout.addWidget(self.progress_bar)
 
         # Środkowy obszar: WebView
         self.web_view = QWebEngineView()
@@ -429,66 +343,110 @@ class MainWindow(QMainWindow):
         self.web_view.urlChanged.connect(self.on_webview_url_changed)
         main_layout.addWidget(self.web_view, 1)
 
-        # Kontrolka rozmiaru kafelków na dole
-        size_control_widget = QWidget()
-        size_control_widget.setStyleSheet(
+        # Dolny pasek z kontrolkami
+        bottom_bar = QWidget()
+        bottom_bar.setStyleSheet(
             """
             QWidget {
                 background-color: rgba(255, 255, 255, 0.05);
                 border: 1px solid rgba(255, 255, 255, 0.1);
                 border-radius: 8px;
-                padding: 12px;
+                padding: 8px;
             }
         """
         )
+        bottom_layout = QHBoxLayout(bottom_bar)
+        bottom_layout.setContentsMargins(8, 8, 8, 8)
+
+        # Kontrolka rozmiaru kafelków
+        size_control_widget = QWidget()
         size_control_layout = QHBoxLayout(size_control_widget)
+        size_control_layout.setContentsMargins(0, 0, 0, 0)
+        size_control_layout.setSpacing(0)
+        size_control_widget.setStyleSheet(
+            "background: none; border: none; margin: 0; padding: 0;"
+        )
 
         self.size_label = QLabel("Rozmiar kafelków: 200px")
         self.size_label.setStyleSheet(
             """
             color: #ffffff;
             font-weight: 500;
-        """
+            background: none;
+            border: none;
+            margin: 0;
+            padding: 0;
+            min-width: 140px;
+            max-width: 160px;
+            """
         )
 
         self.size_slider = QSlider(Qt.Orientation.Horizontal)
         self.size_slider.setMinimum(100)
-        self.size_slider.setMaximum(400)
+        self.size_slider.setMaximum(300)
         self.size_slider.setValue(200)
+        self.size_slider.setFixedHeight(20)
+        self.size_slider.setFixedWidth(300)
         self.size_slider.setTickPosition(QSlider.TickPosition.TicksBelow)
         self.size_slider.setTickInterval(50)
-        self.size_slider.valueChanged.connect(self.update_tile_size)
         self.size_slider.setStyleSheet(
             """
+            QSlider { background: none; border: none; margin: 0; padding: 0; }
             QSlider::groove:horizontal {
-                border: 1px solid #999999;
-                height: 8px;
+                border: none;
+                height: 4px;
                 background: #2d2d2d;
-                margin: 2px 0;
-                border-radius: 4px;
+                margin: 0;
+                border-radius: 2px;
             }
             QSlider::handle:horizontal {
                 background: #3daee9;
-                border: 1px solid #5c5c5c;
-                width: 18px;
+                border: none;
+                width: 12px;
                 margin: -2px 0;
-                border-radius: 9px;
+                border-radius: 6px;
             }
             QSlider::handle:horizontal:hover {
                 background: #4db8f0;
             }
             QSlider::sub-page:horizontal {
                 background: #3daee9;
-                border-radius: 4px;
+                border-radius: 2px;
             }
-        """
+            QSlider::add-page:horizontal {
+                background: #222;
+                border-radius: 2px;
+            }
+            """
         )
-
+        self.size_slider.valueChanged.connect(self.update_tile_size)
+        # Dodaj etykietę i suwak do layoutu
         size_control_layout.addWidget(self.size_label)
         size_control_layout.addWidget(self.size_slider)
-        main_layout.addWidget(size_control_widget)
+        # Dodaj kontrolkę do dolnego paska, wyrównaną do lewej
+        bottom_layout.addWidget(size_control_widget, 0, Qt.AlignmentFlag.AlignLeft)
 
-        # Dodaj pasek statusu na dole
+        # Placeholdery na 4 przyciski
+        for i in range(4):
+            placeholder = QPushButton(f"Przycisk {i+1}")
+            placeholder.setStyleSheet(
+                """
+                QPushButton {
+                    padding: 8px 16px;
+                    border-radius: 6px;
+                    font-weight: 500;
+                    background-color: rgba(255, 255, 255, 0.1);
+                }
+                QPushButton:hover {
+                    background-color: rgba(255, 255, 255, 0.2);
+                }
+            """
+            )
+            bottom_layout.addWidget(placeholder)
+
+        main_layout.addWidget(bottom_bar)
+
+        # Pasek statusu
         self.statusBar = QLabel()
         self.statusBar.setStyleSheet(
             """
@@ -866,7 +824,7 @@ class MainWindow(QMainWindow):
     def update_tile_size(self):
         """Aktualizuje rozmiar kafelków w galerii poprzez JavaScript"""
         size = self.size_slider.value()
-        self.size_label.setText(f"{size}px")
+        self.size_label.setText(f"Rozmiar kafelków: {size}px")
 
         # Wyślij JavaScript do WebView aby zaktualizować CSS
         js_code = f"""
@@ -881,13 +839,12 @@ class MainWindow(QMainWindow):
         self.web_view.page().runJavaScript(js_code)
 
     def update_folder_stats(self, folder_path=None):
-        """Aktualizuje panel statystyki folderu"""
+        """Aktualizuje statystyki folderu"""
         # Jeśli nie podano ścieżki, użyj głównego folderu roboczego
         if not folder_path:
             folder_path = self.current_work_directory
 
         if not folder_path or not os.path.exists(folder_path):
-            self.stats_content.setText("Brak danych")
             self.log_message("Brak folderu do sprawdzenia statystyk")
             return
 
@@ -923,29 +880,20 @@ class MainWindow(QMainWindow):
                             f"Archiwa: {archive_count} | "
                             f"Skanowano: {scan_date}"
                         )
-                        self.stats_content.setText(stats_text)
-                        self.log_message(
-                            f"✅ SUKCES - Wyświetlono statystyki dla {folder_name}: {stats_text}"
-                        )
+                        self.log_message(stats_text)
                     else:
-                        self.stats_content.setText(
+                        self.log_message(
                             "Dane folder_info są puste - uruchom skanowanie"
                         )
-                        self.log_message(
-                            f"❌ BŁĄD - Brak poprawnych danych folder_info w: {index_json}"
-                        )
             except json.JSONDecodeError as e:
-                self.stats_content.setText(f"Błąd formatu JSON: {str(e)}")
-                self.log_message(f"❌ BŁĄD JSON w pliku {index_json}: {str(e)}")
+                self.log_message(f"Błąd formatu JSON: {str(e)}")
             except Exception as e:
-                self.stats_content.setText(f"Błąd odczytu: {str(e)}")
-                self.log_message(f"❌ BŁĄD odczytu pliku {index_json}: {str(e)}")
+                self.log_message(f"Błąd odczytu: {str(e)}")
         else:
             folder_name = os.path.basename(folder_path)
-            self.stats_content.setText(
+            self.log_message(
                 f"📁 {folder_name} - Naciśnij 'Skanuj Foldery' aby zobaczyć statystyki"
             )
-            self.log_message(f"❌ BRAK pliku index.json w: {folder_path}")
 
     def debug_refresh_stats(self):
         """Debugowa funkcja odświeżania statystyk"""
