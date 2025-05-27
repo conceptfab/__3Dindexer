@@ -1,15 +1,50 @@
-1. Napraw CSS - Ciemny schemat
-Plik: templates/gallery_styles.css
+Zmiany w pliku main.py
+W funkcji __init__ klasy MainWindow:
+pythondef __init__(self):
+    super().__init__()
+    self.setWindowTitle("Skaner Folderów i Kreator Galerii")
+    self.setGeometry(100, 100, 1400, 900)  # Zwiększony rozmiar startowy
+    self.setMinimumSize(1200, 800)  # Minimalna wielkość okna
+W funkcji select_work_directory:
+pythondef select_work_directory(self):
+    initial_dir = self.current_work_directory if self.current_work_directory else os.path.expanduser("~")
+    folder = QFileDialog.getExistingDirectory(self, "Wybierz folder roboczy", initial_dir)
+    if folder:
+        self.current_work_directory = folder
+        if config_manager.set_work_directory(folder):
+            self.log_message(f"Ustawiono folder roboczy: {folder}")
+        else:
+            self.log_message(f"Błąd zapisu konfiguracji dla folderu: {folder}")
+        self.update_status_label()
+        self.current_gallery_root_html = self.get_current_gallery_index_html()
+        self.update_gallery_buttons_state()
+        
+        # AUTOMATYCZNE OTWIERANIE GALERII PO WYBORZE FOLDERU
+        if self.current_gallery_root_html and os.path.exists(self.current_gallery_root_html):
+            self.show_gallery_in_app()
+        else:
+            # Jeśli galeria nie istnieje, automatycznie ją zbuduj
+            self.rebuild_gallery(auto_show_after_build=True)
+Nowy plik templates/gallery_styles.css
 css:root {
-    --bg-primary: #1a1a1a;
-    --bg-secondary: #2d2d2d;
-    --bg-tertiary: #3a3a3a;
-    --text-primary: #ffffff;
-    --text-secondary: #b0b0b0;
-    --accent: #007acc;
-    --accent-hover: #005a9e;
-    --border: #404040;
-    --shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+    --bg-primary: #0d1117;
+    --bg-secondary: #161b22;  
+    --bg-tertiary: #21262d;
+    --bg-quaternary: #30363d;
+    --text-primary: #f0f6fc;
+    --text-secondary: #8b949e;
+    --accent: #58a6ff;
+    --accent-hover: #79c0ff;
+    --accent-bg: rgba(88, 166, 255, 0.1);
+    --border: #30363d;
+    --border-muted: #21262d;
+    --success: #3fb950;
+    --warning: #d29922;
+    --danger: #f85149;
+    --shadow: 0 8px 32px rgba(0, 0, 0, 0.6);
+    --shadow-hover: 0 16px 48px rgba(0, 0, 0, 0.8);
+    --radius: 12px;
+    --radius-sm: 8px;
     --transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
@@ -18,72 +53,86 @@ css:root {
 }
 
 body {
-    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif;
     margin: 0;
     padding: 20px;
-    background: linear-gradient(135deg, var(--bg-primary) 0%, #0f0f0f 100%);
+    background: linear-gradient(135deg, var(--bg-primary) 0%, #0a0e16 100%);
     color: var(--text-primary);
     line-height: 1.6;
     min-height: 100vh;
 }
 
 .container {
-    max-width: 1800px;
-    margin: 0 auto;
+    max-width: none; /* Usuwa ograniczenie szerokości */
+    width: 100%;
+    margin: 0;
     background: var(--bg-secondary);
-    padding: 30px;
-    border-radius: 16px;
+    padding: 24px;
+    border-radius: var(--radius);
     box-shadow: var(--shadow);
+    min-height: calc(100vh - 40px);
 }
 
 h1, h2, h3 {
     color: var(--text-primary);
-    border-bottom: 2px solid var(--accent);
-    padding-bottom: 10px;
+    margin: 0 0 16px 0;
+    font-weight: 600;
+    border-bottom: 1px solid var(--border);
+    padding-bottom: 8px;
 }
 
+h1 { font-size: 2rem; }
+h2 { font-size: 1.5rem; }
+h3 { font-size: 1.25rem; }
+
 .breadcrumb {
-    margin-bottom: 25px;
-    padding: 15px;
+    margin-bottom: 24px;
+    padding: 12px 16px;
     background: var(--bg-tertiary);
-    border-radius: 8px;
-    font-size: 1.1em;
-    border-left: 4px solid var(--accent);
+    border-radius: var(--radius-sm);
+    font-size: 0.95rem;
+    border: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    gap: 8px;
 }
 
 .breadcrumb a {
     color: var(--accent);
     transition: var(--transition);
     text-decoration: none;
+    padding: 4px 8px;
+    border-radius: var(--radius-sm);
 }
 
 .breadcrumb a:hover {
     color: var(--accent-hover);
-    text-shadow: 0 0 8px var(--accent);
+    background: var(--accent-bg);
 }
 
 .gallery-controls {
     background: var(--bg-tertiary);
-    padding: 20px;
-    border-radius: 12px;
-    margin-bottom: 30px;
+    padding: 16px 20px;
+    border-radius: var(--radius);
+    margin-bottom: 24px;
     border: 1px solid var(--border);
     display: flex;
     align-items: center;
-    gap: 15px;
+    gap: 16px;
 }
 
 .gallery-controls label {
     color: var(--text-primary);
-    font-weight: bold;
+    font-weight: 500;
+    font-size: 0.9rem;
 }
 
 .gallery-controls input[type="range"] {
     -webkit-appearance: none;
     appearance: none;
-    height: 6px;
+    height: 4px;
     background: var(--bg-primary);
-    border-radius: 3px;
+    border-radius: 2px;
     outline: none;
     flex: 1;
     max-width: 200px;
@@ -92,22 +141,35 @@ h1, h2, h3 {
 .gallery-controls input[type="range"]::-webkit-slider-thumb {
     -webkit-appearance: none;
     appearance: none;
-    width: 20px;
-    height: 20px;
+    width: 18px;
+    height: 18px;
     background: var(--accent);
     border-radius: 50%;
     cursor: pointer;
     transition: var(--transition);
+    border: 2px solid var(--bg-secondary);
 }
 
 .gallery-controls input[type="range"]::-webkit-slider-thumb:hover {
     background: var(--accent-hover);
-    transform: scale(1.1);
+    transform: scale(1.15);
+    box-shadow: 0 0 12px var(--accent);
 }
 
+#sizeValue {
+    color: var(--text-secondary);
+    font-size: 0.85rem;
+    min-width: 50px;
+}
+
+.section {
+    margin-bottom: 32px;
+}
+
+/* GALERIA - RESPONSIVE GRID */
 .gallery {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
     gap: 20px;
     margin-bottom: 30px;
 }
@@ -115,129 +177,156 @@ h1, h2, h3 {
 .gallery-item {
     background: var(--bg-tertiary);
     border: 1px solid var(--border);
-    border-radius: 12px;
-    padding: 15px;
+    border-radius: var(--radius);
+    padding: 16px;
     text-align: center;
     transition: var(--transition);
     position: relative;
     overflow: hidden;
+    cursor: pointer;
 }
 
 .gallery-item:hover {
-    transform: translateY(-5px);
-    box-shadow: 0 8px 25px rgba(0, 123, 255, 0.15);
+    transform: translateY(-4px);
+    box-shadow: var(--shadow-hover);
     border-color: var(--accent);
+    background: var(--bg-quaternary);
 }
 
 .gallery-item img {
     width: 100%;
-    height: 140px;
+    height: 160px;
     object-fit: cover;
-    border-radius: 8px;
+    border-radius: var(--radius-sm);
     margin-bottom: 12px;
     transition: var(--transition);
     cursor: pointer;
 }
 
 .gallery-item:hover img {
-    transform: scale(1.05);
+    transform: scale(1.02);
 }
 
 .gallery-item p {
-    margin: 5px 0;
-    font-size: 0.9em;
+    margin: 4px 0;
+    font-size: 0.9rem;
     word-wrap: break-word;
     color: var(--text-primary);
 }
 
 .file-info {
-    font-size: 0.8em;
+    font-size: 0.75rem;
     color: var(--text-secondary);
 }
 
-/* FOLDERY W KAFELKACH - NIE LISTA */
+/* PODGLĄD W MODALNYM OKNIE */
+.preview-modal {
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow-hover);
+    padding: 20px;
+    z-index: 1001;
+    max-width: 80vw;
+    max-height: 80vh;
+    display: none;
+}
+
+.preview-modal.show {
+    display: block;
+}
+
+.preview-modal img {
+    max-width: 100%;
+    max-height: 70vh;
+    object-fit: contain;
+    border-radius: var(--radius-sm);
+}
+
+.preview-backdrop {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
+    background: rgba(0, 0, 0, 0.7);
+    backdrop-filter: blur(4px);
+    z-index: 1000;
+    display: none;
+}
+
+.preview-backdrop.show {
+    display: block;
+}
+
+/* PODFOLDERY */
 .subfolders-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
-    gap: 15px;
+    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+    gap: 16px;
     margin-bottom: 30px;
 }
 
 .subfolder-item {
     background: var(--bg-tertiary);
     border: 1px solid var(--border);
-    border-radius: 12px;
-    padding: 15px;
+    border-radius: var(--radius);
+    padding: 16px;
     text-align: center;
     transition: var(--transition);
     cursor: pointer;
 }
 
 .subfolder-item:hover {
-    transform: translateY(-3px);
-    box-shadow: 0 6px 20px rgba(0, 123, 255, 0.2);
+    transform: translateY(-2px);
+    box-shadow: 0 8px 24px rgba(88, 166, 255, 0.15);
     border-color: var(--accent);
+    background: var(--bg-quaternary);
 }
 
 .subfolder-item a {
     color: var(--text-primary);
     text-decoration: none;
-    font-weight: bold;
+    font-weight: 500;
     display: block;
+    font-size: 0.95rem;
 }
 
 .subfolder-item:hover a {
     color: var(--accent);
 }
 
-/* Podgląd po najechaniu */
-.preview-overlay {
-    position: fixed;
-    top: 0;
-    left: 0;
-    width: 100vw;
-    height: 100vh;
-    background: rgba(0, 0, 0, 0.9);
-    display: none;
-    justify-content: center;
-    align-items: center;
-    z-index: 1000;
-    backdrop-filter: blur(5px);
-}
-
-.preview-overlay img {
-    max-width: 90vw;
-    max-height: 90vh;
-    object-fit: contain;
-    border-radius: 12px;
-    box-shadow: var(--shadow);
-}
-
-.preview-overlay.show {
-    display: flex;
-}
-
 .no-preview-list {
     list-style: none;
     padding: 0;
     background: var(--bg-tertiary);
-    border-radius: 8px;
+    border-radius: var(--radius);
     overflow: hidden;
+    border: 1px solid var(--border);
 }
 
 .no-preview-list li {
-    padding: 15px 20px;
-    border-bottom: 1px solid var(--border);
+    padding: 16px 20px;
+    border-bottom: 1px solid var(--border-muted);
     transition: var(--transition);
 }
 
+.no-preview-list li:last-child {
+    border-bottom: none;
+}
+
 .no-preview-list li:hover {
-    background: var(--bg-primary);
+    background: var(--bg-quaternary);
 }
 
 .no-preview-list a {
     color: var(--text-primary);
     text-decoration: none;
+    font-weight: 500;
 }
 
 .no-preview-list a:hover {
@@ -245,14 +334,19 @@ h1, h2, h3 {
 }
 
 .folder-stats {
-    background: linear-gradient(135deg, var(--bg-tertiary) 0%, #1e3a5f 100%);
+    background: linear-gradient(135deg, var(--bg-tertiary) 0%, var(--bg-quaternary) 100%);
     padding: 20px;
-    border-radius: 12px;
-    border-left: 4px solid var(--accent);
+    border-radius: var(--radius);
+    border: 1px solid var(--border);
+}
+
+.folder-stats h3 {
+    margin-top: 0;
+    color: var(--accent);
 }
 
 .folder-stats p {
-    margin: 5px 0;
+    margin: 8px 0;
     color: var(--text-primary);
 }
 
@@ -266,24 +360,36 @@ a:hover {
     color: var(--accent-hover);
 }
 
-/* Responsive */
-@media (max-width: 768px) {
+/* RESPONSIVE */
+@media (max-width: 1200px) {
     .gallery {
-        grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
-        gap: 15px;
+        grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+        gap: 16px;
+    }
+}
+
+@media (max-width: 768px) {
+    .container {
+        padding: 16px;
+        margin: 10px;
+    }
+    
+    .gallery {
+        grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+        gap: 12px;
     }
     
     .subfolders-grid {
-        grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+        grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
     }
     
-    .container {
-        padding: 20px;
-        margin: 10px;
+    .gallery-controls {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 12px;
     }
 }
-2. Napraw szablon HTML z podglądem i kafelkami folderów
-Plik: templates/gallery_template.html
+Nowy plik templates/gallery_template.html
 html<!DOCTYPE html>
 <html lang="pl">
 <head>
@@ -297,28 +403,29 @@ html<!DOCTYPE html>
         <div class="breadcrumb">
             {% for part in breadcrumb_parts %}
                 {% if part.link %}
-                    <a href="{{ part.link }}">{{ part.name }}</a> /
+                    <a href="{{ part.link }}">{{ part.name }}</a> <span>/</span>
                 {% else %}
                     <span>{{ part.name }}</span>
                 {% endif %}
             {% endfor %}
         </div>
-        <h1>Galeria: {{ current_folder_display_name }}</h1>
-        <p>Pełna ścieżka: {{ folder_info.path }}</p>
+        
+        <h1>{{ current_folder_display_name }}</h1>
+        <p style="color: var(--text-secondary); margin-bottom: 24px;">{{ folder_info.path }}</p>
 
         <div class="gallery-controls">
-            <label for="sizeSlider">Rozmiar miniaturki:</label>
-            <input type="range" id="sizeSlider" min="100" max="400" value="150">
-            <span id="sizeValue">150px</span>
+            <label for="sizeSlider">Rozmiar kafelków:</label>
+            <input type="range" id="sizeSlider" min="150" max="350" value="200">
+            <span id="sizeValue">200px</span>
         </div>
 
         {% if subfolders %}
         <div class="section">
-            <h2>Podfoldery ({{ subfolders|length }})</h2>
+            <h2>📁 Podfoldery ({{ subfolders|length }})</h2>
             <div class="subfolders-grid">
                 {% for sf in subfolders %}
                 <div class="subfolder-item">
-                    <a href="{{ sf.link }}">📁 {{ sf.name }}</a>
+                    <a href="{{ sf.link }}">{{ sf.name }}</a>
                 </div>
                 {% endfor %}
             </div>
@@ -327,20 +434,21 @@ html<!DOCTYPE html>
 
         {% if files_with_previews %}
         <div class="section">
-            <h2>Pliki z podglądem ({{ files_with_previews|length }})</h2>
+            <h2>🖼️ Pliki z podglądem ({{ files_with_previews|length }})</h2>
             <div class="gallery" id="filesWithPreviewsGallery">
                 {% for file in files_with_previews %}
                 <div class="gallery-item">
-                    <a href="{{ file.archive_link }}" title="Otwórz plik: {{ file.name }}">
-                        {% if file.preview_relative_path %}
-                        <img src="{{ file.preview_relative_path }}" alt="Podgląd dla {{ file.name }}" class="preview-image">
-                        {% else %}
-                        <div style="height: 140px; background: var(--bg-primary); display: flex; align-items: center; justify-content: center; border-radius: 8px;">
-                            <span>Brak podglądu</span>
-                        </div>
-                        {% endif %}
-                    </a>
-                    <p><a href="{{ file.archive_link }}" title="Otwórz plik: {{ file.name }}">{{ file.name }}</a></p>
+                    {% if file.preview_relative_path %}
+                    <img src="{{ file.preview_relative_path }}" 
+                         alt="Podgląd dla {{ file.name }}" 
+                         class="preview-image"
+                         data-full-src="{{ file.preview_relative_path }}">
+                    {% else %}
+                    <div style="height: 160px; background: var(--bg-primary); display: flex; align-items: center; justify-content: center; border-radius: 8px; color: var(--text-secondary);">
+                        <span>Brak podglądu</span>
+                    </div>
+                    {% endif %}
+                    <p><a href="{{ file.archive_link }}" title="Otwórz: {{ file.name }}">{{ file.name }}</a></p>
                     <p class="file-info">{{ file.size_readable }}</p>
                 </div>
                 {% endfor %}
@@ -350,20 +458,21 @@ html<!DOCTYPE html>
 
         {% if other_images %}
         <div class="section">
-            <h2>Pozostałe obrazy ({{ other_images|length }})</h2>
+            <h2>🎨 Pozostałe obrazy ({{ other_images|length }})</h2>
             <div class="gallery" id="otherImagesGallery">
                 {% for image in other_images %}
                 <div class="gallery-item">
-                     <a href="{{ image.file_link }}" title="Otwórz plik: {{ image.name }}">
-                        {% if image.image_relative_path %}
-                        <img src="{{ image.image_relative_path }}" alt="{{ image.name }}" class="preview-image">
-                        {% else %}
-                        <div style="height: 140px; background: var(--bg-primary); display: flex; align-items: center; justify-content: center; border-radius: 8px;">
-                            <span>Błąd ładowania</span>
-                        </div>
-                        {% endif %}
-                     </a>
-                    <p><a href="{{ image.file_link }}" title="Otwórz plik: {{ image.name }}">{{ image.name }}</a></p>
+                    {% if image.image_relative_path %}
+                    <img src="{{ image.image_relative_path }}" 
+                         alt="{{ image.name }}" 
+                         class="preview-image"
+                         data-full-src="{{ image.image_relative_path }}">
+                    {% else %}
+                    <div style="height: 160px; background: var(--bg-primary); display: flex; align-items: center; justify-content: center; border-radius: 8px; color: var(--text-secondary);">
+                        <span>Błąd ładowania</span>
+                    </div>
+                    {% endif %}
+                    <p><a href="{{ image.file_link }}" title="Otwórz: {{ image.name }}">{{ image.name }}</a></p>
                     <p class="file-info">{{ image.size_readable }}</p>
                 </div>
                 {% endfor %}
@@ -373,12 +482,12 @@ html<!DOCTYPE html>
 
         {% if files_without_previews %}
         <div class="section">
-            <h2>Pliki bez podglądu ({{ files_without_previews|length }})</h2>
+            <h2>📄 Pliki bez podglądu ({{ files_without_previews|length }})</h2>
             <ul class="no-preview-list">
                 {% for file in files_without_previews %}
                 <li>
-                    <a href="{{ file.archive_link }}" title="Otwórz plik: {{ file.name }}">{{ file.name }}</a>
-                    <span class="file-info"> ({{ file.size_readable }})</span>
+                    <a href="{{ file.archive_link }}" title="Otwórz: {{ file.name }}">{{ file.name }}</a>
+                    <span class="file-info"> — {{ file.size_readable }}</span>
                 </li>
                 {% endfor %}
             </ul>
@@ -386,11 +495,17 @@ html<!DOCTYPE html>
         {% endif %}
 
         <div class="section folder-stats">
-            <h3>Statystyki folderu</h3>
-            <p>Całkowity rozmiar plików: {{ folder_info.total_size_readable }}</p>
-            <p>Liczba plików: {{ folder_info.file_count }}</p>
-            <p>Liczba podfolderów: {{ folder_info.subdir_count }}</p>
+            <h3>📊 Statystyki folderu</h3>
+            <p><strong>Całkowity rozmiar:</strong> {{ folder_info.total_size_readable }}</p>
+            <p><strong>Liczba plików:</strong> {{ folder_info.file_count }}</p>
+            <p><strong>Liczba podfolderów:</strong> {{ folder_info.subdir_count }}</p>
         </div>
+    </div>
+
+    <!-- Modal podglądu -->
+    <div class="preview-backdrop" id="previewBackdrop"></div>
+    <div class="preview-modal" id="previewModal">
+        <img src="" alt="Podgląd" id="previewImg">
     </div>
 
     <script>
@@ -402,125 +517,80 @@ html<!DOCTYPE html>
                 document.getElementById('otherImagesGallery')
             ].filter(Boolean);
 
-            // Tworzenie overlay'a dla podglądu
-            const previewOverlay = document.createElement('div');
-            previewOverlay.className = 'preview-overlay';
-            previewOverlay.innerHTML = '<img src="" alt="Podgląd">';
-            document.body.appendChild(previewOverlay);
+            const previewModal = document.getElementById('previewModal');
+            const previewBackdrop = document.getElementById('previewBackdrop');
+            const previewImg = document.getElementById('previewImg');
 
-            function updateThumbnailSize() {
+            // Aktualizacja rozmiaru kafelków
+            function updateTileSize() {
                 const newSize = slider.value + 'px';
                 sizeValueDisplay.textContent = newSize;
+                
                 galleries.forEach(gallery => {
-                    const items = gallery.querySelectorAll('.gallery-item');
-                    items.forEach(item => {
-                        item.style.width = newSize;
-                        const img = item.querySelector('img');
-                        if (img) {
-                            img.style.maxHeight = (parseInt(slider.value) * 0.8) + 'px';
-                        }
-                    });
+                    gallery.style.gridTemplateColumns = `repeat(auto-fill, minmax(${slider.value}px, 1fr))`;
                 });
             }
 
-            function showPreview(imageSrc, event) {
-                event.preventDefault();
-                event.stopPropagation();
-                
-                const previewImg = previewOverlay.querySelector('img');
+            // Podgląd w modalnym oknie
+            function showPreview(imageSrc) {
                 previewImg.src = imageSrc;
-                previewImg.style.maxWidth = '800px';
-                previewImg.style.maxHeight = '800px';
+                previewModal.classList.add('show');
+                previewBackdrop.classList.add('show');
                 
-                previewOverlay.classList.add('show');
+                // Wyśrodkowanie
+                previewModal.style.transform = 'translate(-50%, -50%)';
             }
 
             function hidePreview() {
-                previewOverlay.classList.remove('show');
+                previewModal.classList.remove('show');
+                previewBackdrop.classList.remove('show');
+                previewImg.src = '';
             }
 
-            // Event listenery
+            // Event listeners
             if (slider) {
-                slider.addEventListener('input', updateThumbnailSize);
-                updateThumbnailSize();
+                slider.addEventListener('input', updateTileSize);
+                updateTileSize();
             }
 
-            // Podgląd na hover dla miniaturek
+            // Podgląd na hover
             galleries.forEach(gallery => {
                 const images = gallery.querySelectorAll('.preview-image');
                 images.forEach(img => {
                     let hoverTimeout;
                     
-                    img.addEventListener('mouseenter', function(e) {
+                    img.addEventListener('mouseenter', function() {
                         hoverTimeout = setTimeout(() => {
-                            showPreview(this.src, e);
-                        }, 300); // Opóźnienie 300ms
+                            showPreview(this.src);
+                        }, 500); // 500ms opóźnienia
                     });
                     
                     img.addEventListener('mouseleave', function() {
                         clearTimeout(hoverTimeout);
-                        setTimeout(hidePreview, 100);
                     });
                 });
             });
 
-            // Ukryj podgląd po kliknięciu lub ESC
-            previewOverlay.addEventListener('click', hidePreview);
+            // Zamykanie modala
+            previewBackdrop.addEventListener('click', hidePreview);
+            previewModal.addEventListener('click', hidePreview);
+            
             document.addEventListener('keydown', function(e) {
                 if (e.key === 'Escape') {
                     hidePreview();
                 }
             });
-
-            // Hover na overlay też ukrywa
-            previewOverlay.addEventListener('mouseenter', function() {
-                setTimeout(hidePreview, 500);
-            });
         });
     </script>
 </body>
 </html>
-3. Zaktualizuj gitignore
-Plik: .gitignore
-gitignore# Python
-__pycache__/
-*.py[cod]
-*$py.class
-*.so
-.Python
-build/
-develop-eggs/
-dist/
-downloads/
-eggs/
-.eggs/
-lib/
-lib64/
-parts/
-sdist/
-var/
-wheels/
-*.egg-info/
-.installed.cfg
-*.egg
+Główne zmiany:
 
-# Virtual Environment
-venv/
-env/
-ENV/
+Automatyczne otwieranie galerii - Po wyborze folderu automatycznie otwiera galerię lub ją buduje
+Pełna szerokość - Usunięto ograniczenie max-width, strona zajmuje całą dostępną przestrzeń
+Rozmiar kafelków - Suwak teraz zmienia rozmiar całych kafelków, nie tylko miniaturek
+Modal podglądu - Podgląd w małym oknie modalnym zamiast na całym ekranie
+Nowoczesny design - GitHub-style ciemny motyw z lepszymi kolorami i efektami
+Większe okno startowe - 1400x900px z minimum 1200x800px
 
-# IDE
-.idea/
-.vscode/
-*.swp
-*.swo
-
-# Project specific
-_gallery_cache/
-*.log
-.env
-.folder_cache.json
-
-# System files
-.DS_Store
-Thumbs.db
+Teraz aplikacja powinna działać znacznie lepiej i wyglądać profesjonalnie!

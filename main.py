@@ -157,7 +157,8 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Skaner Folderów i Kreator Galerii")
-        self.setGeometry(100, 100, 900, 700) # Zwiększono rozmiar okna
+        self.setGeometry(100, 100, 1400, 900)  # Zwiększony rozmiar startowy
+        self.setMinimumSize(1200, 800)  # Minimalna wielkość okna
 
         self.current_work_directory = config_manager.get_work_directory()
         self.scanner_thread = None
@@ -288,10 +289,13 @@ class MainWindow(QMainWindow):
             self.update_status_label()
             self.current_gallery_root_html = self.get_current_gallery_index_html()
             self.update_gallery_buttons_state()
+            
+            # AUTOMATYCZNE OTWIERANIE GALERII PO WYBORZE FOLDERU
             if self.current_gallery_root_html and os.path.exists(self.current_gallery_root_html):
-                self.show_gallery_in_app() # Automatycznie załaduj galerię, jeśli istnieje
+                self.show_gallery_in_app()
             else:
-                self.web_view.setHtml(f"<html><body><p style='text-align:center; padding-top:50px;'>Galeria dla {folder} nie została jeszcze wygenerowana. Użyj przycisku 'Przebuduj Galerię'.</p></body></html>")
+                # Jeśli galeria nie istnieje, automatycznie ją zbuduj
+                self.rebuild_gallery(auto_show_after_build=True)
 
 
     def log_message(self, message):
