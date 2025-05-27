@@ -128,30 +128,54 @@ def get_folder_stats(folder_path):
 def find_matching_preview_for_file(base_filename, image_files_in_folder):
     """
     Szuka pasującego pliku podglądu dla dowolnego pliku.
-    Dopasowuje na podstawie identycznej nazwy bazowej (bez rozszerzenia),
-    ignorując wielkość liter i obsługując wszystkie warianty rozszerzeń.
+    Dopasowuje na podstawie nazwy bazowej z obsługą różnych wariantów:
+    - zamiana podkreśleń na spacje i odwrotnie
+    - dodatkowe cyfry i tekst na końcu nazwy obrazu
+    - różne separatory (_, -, spacja)
+    - ignorowanie wielkości liter
     """
-    # UWAGA: base_filename już jest nazwą bazową bez rozszerzenia!
-    # Nie rób ponownie os.path.splitext()
+    if not base_filename:
+        return None
+
     base_name = base_filename.lower().strip()
 
-    # Lista możliwych wzorców dla nazwy bazowej
-    possible_patterns = [
-        base_name,  # dokładna nazwa
-        base_name + "_001",  # z sufiksem _001
-        base_name + "_preview",  # z sufiksem _preview
-        base_name + "_thumb",  # z sufiksem _thumb
-    ]
+    # Twórz różne warianty nazwy bazowej
+    name_variants = set()
 
-    # Dodaj wzorce z różnymi separatorami
-    for separator in ["_", "-", " "]:
-        for suffix in ["001", "preview", "thumb", "1"]:
-            pattern = base_name + separator + suffix
-            if pattern not in possible_patterns:
-                possible_patterns.append(pattern)
+    # Podstawowy wariant
+    name_variants.add(base_name)
+
+    # Zamiana podkreśleń na spacje i odwrotnie
+    name_variants.add(base_name.replace("_", " "))
+    name_variants.add(base_name.replace(" ", "_"))
+    name_variants.add(base_name.replace("-", " "))
+    name_variants.add(base_name.replace(" ", "-"))
+    name_variants.add(base_name.replace("_", "-"))
+    name_variants.add(base_name.replace("-", "_"))
+
+    # Usuń wielokrotne spacje/podkreślenia
+    cleaned_variants = set()
+    for variant in name_variants:
+        # Normalizuj wielokrotne separatory
+        import re
+
+        normalized = re.sub(r"[\s_-]+", " ", variant).strip()
+        cleaned_variants.add(normalized)
+        cleaned_variants.add(normalized.replace(" ", "_"))
+        cleaned_variants.add(normalized.replace(" ", "-"))
+
+    name_variants.update(cleaned_variants)
+
+    # Dodaj warianty z typowymi sufiksami
+    extended_variants = set(name_variants)
+    for variant in name_variants:
+        for separator in ["_", "-", " ", ""]:
+            for suffix in ["001", "preview", "thumb", "1", "2", "3", "0"]:
+                if separator or suffix.isdigit():
+                    extended_variants.add(variant + separator + suffix)
 
     logger.debug(
-        f"Szukam podglądu dla '{base_filename}' z wzorcami: {possible_patterns}"
+        f"Szukam podglądu dla '{base_filename}' z {len(extended_variants)} wariantami"
     )
 
     for img_path in image_files_in_folder:
@@ -164,16 +188,81 @@ def find_matching_preview_for_file(base_filename, image_files_in_folder):
 
         img_base_clean = img_base.lower().strip()
 
-        # Sprawdź wszystkie możliwe wzorce
-        for pattern in possible_patterns:
-            if img_base_clean == pattern:
-                logger.debug(
-                    f"✅ Dopasowano podgląd: '{img_name}' dla '{base_filename}' (wzorzec: '{pattern}')"
-                )
-                return img_path
+        # Dokładne dopasowanie
+        if img_base_clean in extended_variants:
+            logger.debug(f"✅ Dokładne dopasowanie: '{img_name}' dla '{base_filename}'")
+            return img_path
+
+        # Sprawdzenie czy obraz zaczyna się od któregoś z wariantów
+        for variant in name_variants:
+            if len(variant) >= 3:  # Minimalna długość dla bezpiecznego dopasowania
+                # Obraz zaczyna się od wariantu + separator/cyfra
+                if (
+                    img_base_clean.startswith(variant + " ")
+                    or img_base_clean.startswith(variant + "_")
+                    or img_base_clean.startswith(variant + "-")
+                    or (
+                        img_base_clean.startswith(variant)
+                        and len(img_base_clean) > len(variant)
+                        and img_base_clean[len(variant) :][0].isdigit()
+                    )
+                ):
+                    logger.debug(
+                        f"✅ Dopasowanie z prefiksem: '{img_name}' dla '{base_filename}' (wariant: '{variant}')"
+                    )
+                    return img_path
 
     logger.debug(f"❌ Nie znaleziono podglądu dla: '{base_filename}'")
     return None
+
+
+def debug_name_matching(base_filename, image_files_in_folder):
+    """
+    Funkcja debugowa do sprawdzenia wszystkich możliwych dopasowań.
+    Użyj do diagnozowania problemów z dopasowywaniem nazw.
+    """
+    print(f"\n🔍 DEBUG dla: '{base_filename}'")
+
+    base_name = base_filename.lower().strip()
+
+    # Twórz warianty tak samo jak w głównej funkcji
+    name_variants = {base_name}
+    name_variants.add(base_name.replace("_", " "))
+    name_variants.add(base_name.replace(" ", "_"))
+    name_variants.add(base_name.replace("-", " "))
+    name_variants.add(base_name.replace(" ", "-"))
+
+    print(f"📝 Warianty bazowe: {sorted(name_variants)}")
+
+    for img_path in image_files_in_folder:
+        img_name = os.path.basename(img_path)
+        img_base, img_ext = os.path.splitext(img_name)
+
+        if img_ext.lower() not in IMAGE_EXTENSIONS:
+            continue
+
+        img_base_clean = img_base.lower().strip()
+        print(f"🖼️ Sprawdzam obraz: '{img_base_clean}'")
+
+        # Test dokładnego dopasowania
+        if img_base_clean in name_variants:
+            print(f"   ✅ DOKŁADNE dopasowanie!")
+
+        # Test dopasowania z prefiksem
+        for variant in name_variants:
+            if len(variant) >= 3:
+                if (
+                    img_base_clean.startswith(variant + " ")
+                    or img_base_clean.startswith(variant + "_")
+                    or img_base_clean.startswith(variant + "-")
+                ):
+                    print(f"   ✅ PREFIKS dopasowanie z wariantem: '{variant}'")
+                elif (
+                    img_base_clean.startswith(variant)
+                    and len(img_base_clean) > len(variant)
+                    and img_base_clean[len(variant) :][0].isdigit()
+                ):
+                    print(f"   ✅ PREFIKS+CYFRA dopasowanie z wariantem: '{variant}'")
 
 
 def log_file_matching_debug(folder_path, progress_callback=None):
