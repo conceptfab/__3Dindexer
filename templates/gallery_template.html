@@ -31,9 +31,11 @@
             <div class="folder-icon">📁</div>
             <a href="{{ sf.link }}">{{ sf.name }}</a>
             <div class="folder-stats">
-              <span>{{ sf.total_size_readable }}</span>
-              <span>{{ sf.file_count }} plików</span>
-              <span>{{ sf.subdir_count }} folderów</span>
+              <span
+                >{{ sf.total_size_readable }} | {{ sf.file_count }} plików{% if
+                sf.subdir_count > 0 %} | {{ sf.subdir_count }} folderów{% endif
+                %}</span
+              >
             </div>
           </div>
           {% endfor %}
@@ -73,44 +75,6 @@
               >
             </p>
             <p class="file-info">{{ file.size_readable }}</p>
-          </div>
-          {% endfor %}
-        </div>
-      </div>
-      {% endif %} {% if other_images %}
-      <div class="section">
-        <h2>🎨 Pozostałe obrazy ({{ other_images|length }})</h2>
-        <div class="gallery" id="otherImagesGallery">
-          {% for image in other_images %}
-          <div class="gallery-item">
-            {% if image.image_relative_path %}
-            <img
-              src="{{ image.image_relative_path }}"
-              alt="{{ image.name }}"
-              class="preview-image"
-              data-full-src="{{ image.image_relative_path }}"
-            />
-            {% else %}
-            <div
-              style="
-                height: 160px;
-                background: var(--bg-primary);
-                display: flex;
-                align-items: center;
-                justify-content: center;
-                border-radius: 8px;
-                color: var(--text-secondary);
-              "
-            >
-              <span>Błąd ładowania</span>
-            </div>
-            {% endif %}
-            <p>
-              <a href="{{ image.file_link }}" title="Otwórz: {{ image.name }}"
-                >{{ image.name }}</a
-              >
-            </p>
-            <p class="file-info">{{ image.size_readable }}</p>
           </div>
           {% endfor %}
         </div>
@@ -167,7 +131,6 @@
       document.addEventListener('DOMContentLoaded', function () {
         const galleries = [
           document.getElementById('filesWithPreviewsGallery'),
-          document.getElementById('otherImagesGallery'),
         ].filter(Boolean);
 
         const previewModal = document.getElementById('previewModal');

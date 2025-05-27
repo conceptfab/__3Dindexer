@@ -240,21 +240,6 @@ class MainWindow(QMainWindow):
         self.setCentralWidget(main_widget)
         main_layout = QVBoxLayout(main_widget)
 
-        # Dodaj pasek statusu
-        self.statusBar = QLabel()
-        self.statusBar.setStyleSheet(
-            """
-            QLabel {
-                background-color: rgba(0, 0, 0, 0.7);
-                color: #ffffff;
-                padding: 5px;
-                border-top: 1px solid rgba(255, 255, 255, 0.1);
-            }
-        """
-        )
-        self.statusBar.setMinimumHeight(25)
-        main_layout.addWidget(self.statusBar)
-
         controls_widget = QWidget()
         controls_layout = QVBoxLayout(controls_widget)
 
@@ -498,13 +483,58 @@ class MainWindow(QMainWindow):
         size_control_layout.addWidget(self.size_slider)
         main_layout.addWidget(size_control_widget)
 
+        # Dodaj pasek statusu na dole
+        self.statusBar = QLabel()
+        self.statusBar.setStyleSheet(
+            """
+            QLabel {
+                background-color: rgba(0, 0, 0, 0.7);
+                color: #ffffff;
+                padding: 5px;
+                border-top: 1px solid rgba(255, 255, 255, 0.1);
+                selection-background-color: #3daee9;
+                selection-color: #ffffff;
+            }
+        """
+        )
+        self.statusBar.setMinimumHeight(25)
+        self.statusBar.setTextInteractionFlags(
+            Qt.TextInteractionFlag.TextSelectableByMouse
+            | Qt.TextInteractionFlag.TextSelectableByKeyboard
+        )
+        main_layout.addWidget(self.statusBar)
+
         self.update_status_label()
 
     def on_webview_url_changed(self, url):
         self.log_message(f"WebView URL changed to: {url.toString()}")
-        # NIE AKTUALIZUJ statystyk na podstawie URL WebView - to może prowadzić do błędów
-        # Statystyki powinny być aktualizowane tylko dla głównego folderu roboczego
-        # lub na żądanie użytkownika
+
+        # AKTUALIZUJ STATYSTYKI DLA AKTUALNEGO FOLDERU W GALERII
+        local_path = url.toLocalFile()
+        print(f"🔍 URL_CHANGED - local_path: {local_path}")
+
+        if local_path and os.path.exists(local_path) and local_path.endswith(".html"):
+            # Pobierz folder z URL galerii
+            gallery_folder = os.path.dirname(local_path)
+            print(f"🔍 URL_CHANGED - gallery_folder: {gallery_folder}")
+
+            # Sprawdź czy to nasza galeria (folder w _gallery_cache)
+            if "_gallery_cache" in gallery_folder:
+                # Znajdź odpowiadający oryginalny folder
+                original_folder = self.get_original_folder_from_gallery_path(
+                    gallery_folder
+                )
+                print(f"🔍 URL_CHANGED - original_folder: {original_folder}")
+
+                if original_folder:
+                    print(
+                        f"🔍 URL_CHANGED - Aktualizuję statystyki dla: {original_folder}"
+                    )
+                    self.update_folder_stats(original_folder)
+                else:
+                    print(
+                        f"❌ URL_CHANGED - Nie znaleziono oryginalnego folderu dla: {gallery_folder}"
+                    )
 
     def get_current_gallery_path(self):
         if not self.current_work_directory:
@@ -567,9 +597,11 @@ class MainWindow(QMainWindow):
             self.current_gallery_root_html = self.get_current_gallery_index_html()
             self.update_gallery_buttons_state()
 
-            # DEBUGGING I AKTUALIZACJA STATYSTYK
-            print(f"🔍 SELECT - Wywołuję update_folder_stats() dla: {folder}")
-            self.update_folder_stats()
+            # DEBUGGING I AKTUALIZACJA STATYSTYK - zawsze dla głównego folderu
+            print(
+                f"🔍 SELECT - Wywołuję update_folder_stats() dla GŁÓWNEGO folderu: {folder}"
+            )
+            self.update_folder_stats(folder)  # Przekaż konkretną ścieżkę
 
             # POTEM AUTOMATYCZNE OTWIERANIE GALERII PO WYBORZE FOLDERU
             if self.current_gallery_root_html and os.path.exists(
@@ -628,12 +660,14 @@ class MainWindow(QMainWindow):
         self.progress_bar.setVisible(False)
         self.set_buttons_for_processing(False)
 
-        # DEBUGGING I AKTUALIZACJA STATYSTYK PO ZAKOŃCZENIU SKANOWANIA
+        # DEBUGGING I AKTUALIZACJA STATYSTYK PO ZAKOŃCZENIU SKANOWANIA - główny folder
         print(
-            f"🔍 SCAN_FINISHED - Wywołuję update_folder_stats() dla: {self.current_work_directory}"
+            f"🔍 SCAN_FINISHED - Wywołuję update_folder_stats() dla GŁÓWNEGO folderu: {self.current_work_directory}"
         )
         self.log_message("Skanowanie zakończone - aktualizacja statystyk")
-        self.update_folder_stats()
+        self.update_folder_stats(
+            self.current_work_directory
+        )  # Przekaż konkretną ścieżkę
 
         QMessageBox.information(self, "Sukces", "Skanowanie zakończone pomyślnie!")
 
@@ -843,8 +877,9 @@ class MainWindow(QMainWindow):
 
     def update_folder_stats(self, folder_path=None):
         """Aktualizuje panel statystyki folderu"""
-        # ZAWSZE używaj aktualnego folderu roboczego, ignoruj parametr folder_path z WebView
-        folder_path = self.current_work_directory
+        # Jeśli nie podano ścieżki, użyj głównego folderu roboczego
+        if not folder_path:
+            folder_path = self.current_work_directory
 
         if not folder_path or not os.path.exists(folder_path):
             self.stats_content.setText("Brak danych")
@@ -873,7 +908,10 @@ class MainWindow(QMainWindow):
                         archive_count = folder_info.get("archive_count", 0)
                         scan_date = folder_info.get("scan_date", "Nieznana")
 
+                        # Dodaj nazwę aktualnego folderu do statystyk
+                        folder_name = os.path.basename(folder_path)
                         stats_text = (
+                            f"📁 {folder_name} | "
                             f"Rozmiar: {total_size} | "
                             f"Pliki: {file_count} | "
                             f"Foldery: {subdir_count} | "
@@ -882,7 +920,7 @@ class MainWindow(QMainWindow):
                         )
                         self.stats_content.setText(stats_text)
                         self.log_message(
-                            f"✅ SUKCES - Wyświetlono statystyki: {stats_text}"
+                            f"✅ SUKCES - Wyświetlono statystyki dla {folder_name}: {stats_text}"
                         )
                     else:
                         self.stats_content.setText(
@@ -898,20 +936,91 @@ class MainWindow(QMainWindow):
                 self.stats_content.setText(f"Błąd odczytu: {str(e)}")
                 self.log_message(f"❌ BŁĄD odczytu pliku {index_json}: {str(e)}")
         else:
+            folder_name = os.path.basename(folder_path)
             self.stats_content.setText(
-                "Naciśnij 'Skanuj Foldery' aby zobaczyć statystyki"
+                f"📁 {folder_name} - Naciśnij 'Skanuj Foldery' aby zobaczyć statystyki"
             )
             self.log_message(f"❌ BRAK pliku index.json w: {folder_path}")
 
     def debug_refresh_stats(self):
         """Debugowa funkcja odświeżania statystyk"""
+        # Sprawdź czy jesteśmy w galerii i pobierz aktualny folder
+        current_url = self.web_view.url().toLocalFile()
+        if current_url and "_gallery_cache" in current_url:
+            gallery_folder = os.path.dirname(current_url)
+            original_folder = self.get_original_folder_from_gallery_path(gallery_folder)
+            if original_folder:
+                print(
+                    f"🔍 REFRESH - Ręczne odświeżenie statystyk dla aktualnego folderu: {original_folder}"
+                )
+                self.log_message(
+                    f"Ręczne odświeżenie statystyk dla: {os.path.basename(original_folder)}"
+                )
+                self.update_folder_stats(original_folder)
+                return
+
+        # Fallback - główny folder roboczy
         print(
-            f"🔍 REFRESH - Ręczne odświeżenie statystyk dla: {self.current_work_directory}"
+            f"🔍 REFRESH - Ręczne odświeżenie statystyk dla głównego folderu: {self.current_work_directory}"
         )
-        self.log_message(
-            f"Ręczne odświeżenie statystyk dla: {self.current_work_directory}"
-        )
+        self.log_message(f"Ręczne odświeżenie statystyk dla głównego folderu")
         self.update_folder_stats()
+
+    def get_original_folder_from_gallery_path(self, gallery_path):
+        """Mapuje ścieżkę galerii na oryginalną ścieżkę folderu"""
+        try:
+            if not self.current_work_directory:
+                print("❌ get_original_folder - Brak current_work_directory")
+                return None
+
+            # Pobierz sanitized name głównego folderu
+            sanitized_main = gallery_generator.sanitize_path_for_foldername(
+                self.current_work_directory
+            )
+            print(f"🔍 get_original_folder - sanitized_main: {sanitized_main}")
+
+            # Znajdź względną ścieżkę w galerii
+            gallery_cache_path = os.path.join(self.GALLERY_CACHE_DIR, sanitized_main)
+            print(f"🔍 get_original_folder - gallery_cache_path: {gallery_cache_path}")
+            print(f"🔍 get_original_folder - gallery_path: {gallery_path}")
+
+            if gallery_path.startswith(gallery_cache_path):
+                # Pobierz względną ścieżkę od głównego folderu galerii
+                relative_path = os.path.relpath(gallery_path, gallery_cache_path)
+                print(f"🔍 get_original_folder - relative_path: {relative_path}")
+
+                if relative_path == ".":
+                    # To główny folder
+                    print(
+                        f"🔍 get_original_folder - To główny folder: {self.current_work_directory}"
+                    )
+                    return self.current_work_directory
+                else:
+                    # To podfolder
+                    original_path = os.path.join(
+                        self.current_work_directory, relative_path
+                    )
+                    print(
+                        f"🔍 get_original_folder - Sprawdzam podfolder: {original_path}"
+                    )
+                    if os.path.exists(original_path):
+                        print(
+                            f"✅ get_original_folder - Znaleziono podfolder: {original_path}"
+                        )
+                        return original_path
+                    else:
+                        print(
+                            f"❌ get_original_folder - Podfolder nie istnieje: {original_path}"
+                        )
+            else:
+                print(
+                    f"❌ get_original_folder - gallery_path nie zaczyna się od gallery_cache_path"
+                )
+
+            return None
+        except Exception as e:
+            print(f"❌ Błąd mapowania ścieżki galerii: {e}")
+            return None
 
 
 if __name__ == "__main__":

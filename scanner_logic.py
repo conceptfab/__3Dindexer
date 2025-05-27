@@ -2,7 +2,6 @@
 import json
 import logging
 import os
-import re  # Pozostaje, jeśli będziemy szukać dopasowań nazw obrazów
 import time  # Dodane dla retry mechanism
 from datetime import datetime
 from pathlib import Path
@@ -110,18 +109,18 @@ def get_folder_stats(folder_path):
 def find_matching_preview_for_file(base_filename, image_files_in_folder):
     """
     Szuka pasującego pliku podglądu dla dowolnego pliku.
-    Nazwa pliku graficznego = nazwa pliku (bez rozszerzenia) + opcjonalny suffix (_0, _001, itp.)
+    Dopasowuje na podstawie identycznej nazwy bazowej (bez rozszerzenia),
+    ignorując wielkość liter i rozszerzenie (jpg, jpeg, png, ...).
     """
-    pattern = re.compile(
-        rf"^{re.escape(base_filename)}(?:_\d+)?\.({'|'.join(ext[1:] for ext in IMAGE_EXTENSIONS)})$",
-        re.IGNORECASE,
-    )
-
-    for (
-        img_path
-    ) in image_files_in_folder:  # image_files_in_folder to lista pełnych ścieżek
-        if pattern.match(os.path.basename(img_path)):
-            return img_path
+    base_name = os.path.splitext(base_filename)[0].lower().strip()
+    for img_path in image_files_in_folder:
+        img_name = os.path.basename(img_path)
+        img_base, img_ext = os.path.splitext(img_name)
+        if img_ext.lower() in IMAGE_EXTENSIONS:
+            if img_base.lower().strip() == base_name:
+                logger.debug(f"Dopasowano podgląd: {img_name} dla {base_filename}")
+                return img_path
+    logger.debug(f"Nie znaleziono podglądu dla: {base_filename}")
     return None
 
 
@@ -216,13 +215,13 @@ def process_folder(folder_path, progress_callback=None):
         f
         for f in all_items_in_dir
         if os.path.isfile(os.path.join(folder_path, f))
-        and f.lower().endswith(IMAGE_EXTENSIONS)
+        and any(f.lower().endswith(ext) for ext in IMAGE_EXTENSIONS)
     ]
     other_filenames = [
         f
         for f in all_items_in_dir
         if os.path.isfile(os.path.join(folder_path, f))
-        and not f.lower().endswith(IMAGE_EXTENSIONS)
+        and not any(f.lower().endswith(ext) for ext in IMAGE_EXTENSIONS)
         and f.lower() != "index.json"
     ]
 
