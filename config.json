@@ -1,5 +1,5 @@
 {
-    "work_directory": "W:\\3Dsky\\ARCHITECTURE",
+    "work_directory": null,
     "preview_size": 400,
     "thumbnail_size": 150,
     "dark_theme": true,
@@ -13,7 +13,8 @@
     "ui": {
         "animation_speed": 300,
         "hover_delay": 500,
-        "max_preview_size": 1200
+        "max_preview_size": 1200,
+        "theme": "dark"
     },
     "security": {
         "allowed_extensions": [

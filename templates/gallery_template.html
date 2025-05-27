@@ -140,7 +140,11 @@
           <ul class="image-list">
             {% for image in other_images %}
             <li>
-              <a href="{{ image.file_link }}" title="Otwórz: {{ image.name }}"
+              <a
+                href="{{ image.file_link }}"
+                title="Otwórz: {{ image.name }}"
+                data-preview-src="{{ image.image_relative_path }}"
+                class="preview-link"
                 >{{ image.name }}</a
               >
               <span class="file-info"> — {{ image.size_readable }}</span>
@@ -172,6 +176,7 @@
 
         // Podgląd w modalnym oknie
         function showPreview(imageSrc) {
+          if (!imageSrc) return;
           previewImg.src = imageSrc;
           previewModal.classList.add('show');
           previewBackdrop.classList.add('show');
@@ -184,7 +189,7 @@
           previewImg.src = '';
         }
 
-        // Podgląd na hover
+        // Podgląd na hover dla obrazów
         galleries.forEach((gallery) => {
           const images = gallery.querySelectorAll('.preview-image');
           images.forEach((img) => {
@@ -199,6 +204,25 @@
             img.addEventListener('mouseleave', function () {
               clearTimeout(hoverTimeout);
             });
+          });
+        });
+
+        // Podgląd na hover dla linków w right-column
+        const previewLinks = document.querySelectorAll('.preview-link');
+        previewLinks.forEach((link) => {
+          let hoverTimeout;
+
+          link.addEventListener('mouseenter', function () {
+            const previewSrc = this.getAttribute('data-preview-src');
+            if (previewSrc) {
+              hoverTimeout = setTimeout(() => {
+                showPreview(previewSrc);
+              }, 500);
+            }
+          });
+
+          link.addEventListener('mouseleave', function () {
+            clearTimeout(hoverTimeout);
           });
         });
 

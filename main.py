@@ -4,16 +4,17 @@ import os
 import re
 import shutil
 import sys
-import webbrowser  # Pozostaje dla ewentualnego otwierania plików archiwów
+import webbrowser
 
-from PyQt6.QtCore import Qt, QThread, QUrl, pyqtSignal  # Dodane QUrl
-from PyQt6.QtGui import QDesktopServices  # Do otwierania linków zewnętrznych
-from PyQt6.QtWebEngineCore import QWebEnginePage  # Dodane dla obsługi linków
-from PyQt6.QtWebEngineWidgets import QWebEngineView  # Dodane
-from PyQt6.QtWidgets import QHBoxLayout  # Dodane
+import qdarktheme
+from PyQt6.QtCore import QThread, QUrl, pyqtSignal
+from PyQt6.QtGui import QDesktopServices
+from PyQt6.QtWebEngineCore import QWebEnginePage
+from PyQt6.QtWebEngineWidgets import QWebEngineView
 from PyQt6.QtWidgets import (
     QApplication,
     QFileDialog,
+    QHBoxLayout,
     QLabel,
     QMainWindow,
     QMessageBox,
@@ -21,8 +22,6 @@ from PyQt6.QtWidgets import (
     QProgressDialog,
     QPushButton,
     QSizePolicy,
-    QSlider,
-    QTextEdit,
     QVBoxLayout,
     QWidget,
 )
@@ -161,21 +160,16 @@ class CustomWebEnginePage(QWebEnginePage):
         super().__init__(parent)
 
     def acceptNavigationRequest(self, url, type, isMainFrame):
-        # type: QWebEnginePage.NavigationTypeLinkClicked, etc.
+        # type: QWebEnginePage.NavigationTypeLinkClicked
         # isMainFrame: True if the navigation is for the main frame
-
         scheme = url.scheme()
+
         # Jeśli to link do lokalnego pliku HTML (nasza galeria)
         if scheme == "file" and url.path().endswith(".html"):
-            # Pozwól QWebEngineView obsłużyć to wewnętrznie
             return super().acceptNavigationRequest(url, type, isMainFrame)
         elif scheme == "file":  # Inne pliki lokalne (np. archiwa)
-            # Otwórz za pomocą domyślnej aplikacji systemowej
             QDesktopServices.openUrl(url)
-            return False  # Nie nawiguj w QWebEngineView
-        # Dla innych schematów (http, https), można by otworzyć w zewnętrznej przeglądarce
-        # lub pozwolić QWebEngineView, jeśli chcemy wewnętrzną przeglądarkę dla wszystkiego.
-        # Na razie, jeśli to nie jest plik HTML, otwieramy zewnętrznie.
+            return False
         elif scheme in ["http", "https"]:
             QDesktopServices.openUrl(url)
             return False
@@ -189,8 +183,8 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Skaner Folderów i Kreator Galerii")
-        self.setGeometry(100, 100, 1400, 900)  # Zwiększony rozmiar startowy
-        self.setMinimumSize(1200, 800)  # Minimalna wielkość okna
+        self.setGeometry(100, 100, 1400, 900)
+        self.setMinimumSize(1200, 800)
 
         self.current_work_directory = config_manager.get_work_directory()
         self.scanner_thread = None
@@ -201,8 +195,8 @@ class MainWindow(QMainWindow):
         self.init_ui()
         self.update_status_label()
         self.update_gallery_buttons_state()
+        self.setup_theme_menu()  # Dodane menu motywów
 
-        # AUTOMATYCZNE ŁADOWANIE GALERII PRZY STARCIE
         if self.current_work_directory:
             self.current_gallery_root_html = self.get_current_gallery_index_html()
             if self.current_gallery_root_html and os.path.exists(
@@ -211,60 +205,123 @@ class MainWindow(QMainWindow):
                 self.show_gallery_in_app()
             self.update_folder_stats()
 
+    def setup_theme_menu(self):
+        """Dodaje menu przełączania motywów."""
+        menubar = self.menuBar()
+        theme_menu = menubar.addMenu("Motyw")
+
+        dark_action = theme_menu.addAction("Ciemny")
+        light_action = theme_menu.addAction("Jasny")
+
+        dark_action.triggered.connect(lambda: self.change_theme("dark"))
+        light_action.triggered.connect(lambda: self.change_theme("light"))
+
+    def change_theme(self, theme):
+        """Zmienia motyw aplikacji."""
+        if theme not in ["dark", "light"]:
+            theme = "dark"  # Domyślny motyw
+        QApplication.instance().setStyleSheet(qdarktheme.load_stylesheet(theme))
+        config_manager.set_config_value("ui.theme", theme)
+
     def init_ui(self):
         main_widget = QWidget(self)
         self.setCentralWidget(main_widget)
         main_layout = QVBoxLayout(main_widget)
 
-        # Górny panel kontrolny - wszystkie przyciski w jednym rzędzie
         controls_widget = QWidget()
         controls_layout = QVBoxLayout(controls_widget)
 
-        # Sekcja wyboru folderu
         folder_layout = QHBoxLayout()
         self.folder_label = QLabel("Folder roboczy: Brak")
         folder_layout.addWidget(self.folder_label, 1)
 
         self.select_folder_button = QPushButton("📁 Wybierz Folder")
         self.select_folder_button.setStyleSheet(
-            "QPushButton { background-color: #4CAF50; color: white; font-weight: bold; }"
+            """
+            QPushButton {
+                font-weight: bold;
+                padding: 8px 16px;
+                border-radius: 6px;
+            }
+            QPushButton:hover {
+                background-color: #2d5aa0;
+            }
+        """
         )
         self.select_folder_button.clicked.connect(self.select_work_directory)
         folder_layout.addWidget(self.select_folder_button)
         controls_layout.addLayout(folder_layout)
 
-        # Dodaj progress bar
         self.progress_bar = QProgressBar()
         self.progress_bar.setVisible(False)
+        self.progress_bar.setStyleSheet(
+            """
+            QProgressBar {
+                border-radius: 4px;
+                text-align: center;
+                height: 20px;
+            }
+            QProgressBar::chunk {
+                border-radius: 4px;
+                background-color: #3daee9;
+            }
+        """
+        )
         controls_layout.addWidget(self.progress_bar)
 
-        # Wszystkie przyciski akcji w jednym rzędzie
         action_layout = QHBoxLayout()
 
         self.start_scan_button = QPushButton("🔍 Skanuj Foldery")
         self.start_scan_button.setStyleSheet(
-            "QPushButton { background-color: #2196F3; color: white; }"
+            """
+            QPushButton {
+                padding: 8px 16px;
+                border-radius: 6px;
+                font-weight: 500;
+            }
+        """
         )
         self.start_scan_button.clicked.connect(self.start_scan)
         action_layout.addWidget(self.start_scan_button)
 
         self.rebuild_gallery_button = QPushButton("🔄 Przebuduj Galerię")
         self.rebuild_gallery_button.setStyleSheet(
-            "QPushButton { background-color: #FF9800; color: white; }"
+            """
+            QPushButton {
+                padding: 8px 16px;
+                border-radius: 6px;
+                font-weight: 500;
+            }
+        """
         )
-        self.rebuild_gallery_button.clicked.connect(self.rebuild_gallery)
+        self.rebuild_gallery_button.clicked.connect(lambda: self.rebuild_gallery(True))
         action_layout.addWidget(self.rebuild_gallery_button)
 
         self.open_gallery_button = QPushButton("👁️ Pokaż Galerię")
         self.open_gallery_button.setStyleSheet(
-            "QPushButton { background-color: #9C27B0; color: white; }"
+            """
+            QPushButton {
+                padding: 8px 16px;
+                border-radius: 6px;
+                font-weight: 500;
+            }
+        """
         )
         self.open_gallery_button.clicked.connect(self.show_gallery_in_app)
         action_layout.addWidget(self.open_gallery_button)
 
         self.clear_gallery_cache_button = QPushButton("🗑️ Wyczyść Cache")
         self.clear_gallery_cache_button.setStyleSheet(
-            "QPushButton { background-color: #F44336; color: white; }"
+            """
+            QPushButton {
+                padding: 8px 16px;
+                border-radius: 6px;
+                font-weight: 500;
+            }
+            QPushButton:hover {
+                background-color: #c62d42;
+            }
+        """
         )
         self.clear_gallery_cache_button.clicked.connect(
             self.clear_current_gallery_cache
@@ -273,28 +330,53 @@ class MainWindow(QMainWindow):
 
         self.cancel_button = QPushButton("❌ Anuluj")
         self.cancel_button.setStyleSheet(
-            "QPushButton { background-color: #607D8B; color: white; }"
+            """
+            QPushButton {
+                padding: 8px 16px;
+                border-radius: 6px;
+                font-weight: 500;
+            }
+        """
         )
         self.cancel_button.clicked.connect(self.cancel_operations)
-        self.cancel_button.setEnabled(False)
         action_layout.addWidget(self.cancel_button)
-
-        # Suwak rozmiaru kafelków - wspólny dla całego projektu
-        size_layout = QHBoxLayout()
-        size_layout.addWidget(QLabel("Rozmiar kafelków:"))
-        self.size_slider = QSlider(Qt.Orientation.Horizontal)
-        self.size_slider.setMinimum(150)
-        self.size_slider.setMaximum(350)
-        self.size_slider.setValue(200)
-        self.size_slider.valueChanged.connect(self.update_tile_size)
-        size_layout.addWidget(self.size_slider)
-
-        self.size_label = QLabel("200px")
-        size_layout.addWidget(self.size_label)
-        action_layout.addLayout(size_layout)
 
         controls_layout.addLayout(action_layout)
         main_layout.addWidget(controls_widget)
+
+        # Panel statystyk
+        self.stats_panel = QWidget()
+        self.stats_panel.setStyleSheet(
+            """
+            QWidget { 
+                background-color: rgba(255, 255, 255, 0.05);
+                border: 1px solid rgba(255, 255, 255, 0.1);
+                border-radius: 8px;
+                padding: 8px;
+            }
+            QLabel {
+                color: #ffffff;
+                padding: 4px;
+                background: transparent;
+            }
+        """
+        )
+        stats_layout = QVBoxLayout(self.stats_panel)
+
+        self.stats_title = QLabel("Statystyki folderu")
+        self.stats_title.setStyleSheet(
+            """
+            font-weight: bold; 
+            font-size: 14px; 
+            color: #3daee9;
+            background: transparent;
+        """
+        )
+        stats_layout.addWidget(self.stats_title)
+
+        self.stats_content = QLabel("Brak danych")
+        stats_layout.addWidget(self.stats_content)
+        main_layout.addWidget(self.stats_panel)
 
         # Środkowy obszar: WebView
         self.web_view = QWebEngineView()
@@ -306,58 +388,6 @@ class MainWindow(QMainWindow):
             self.on_webview_url_changed
         )  # Do debugowania lub aktualizacji stanu
         main_layout.addWidget(self.web_view, 1)
-
-        # Dolny obszar: Logi i Statystyki obok siebie
-        bottom_layout = QHBoxLayout()
-
-        # Logi - lewa połowa
-        self.log_output = QTextEdit()
-        self.log_output.setReadOnly(True)
-        self.log_output.setMaximumHeight(150)
-        bottom_layout.addWidget(self.log_output, 1)
-
-        # Panel statystyk - prawa połowa z CIEMNYM TŁEM
-        self.stats_panel = QWidget()
-        self.stats_panel.setMaximumHeight(150)
-        self.stats_panel.setStyleSheet(
-            """
-            QWidget { 
-                background-color: #21262d; 
-                border: 1px solid #30363d; 
-                border-radius: 8px;
-                color: #f0f6fc;
-            }
-            QLabel {
-                color: #f0f6fc;
-                padding: 2px;
-            }
-        """
-        )
-        stats_layout = QVBoxLayout(self.stats_panel)
-
-        self.stats_title = QLabel("📊 Statystyki aktualnego folderu")
-        self.stats_title.setStyleSheet(
-            "font-weight: bold; font-size: 14px; color: #58a6ff;"
-        )
-        stats_layout.addWidget(self.stats_title)
-
-        self.stats_path = QLabel("Ścieżka: -")
-        self.stats_size = QLabel("Rozmiar: -")
-        self.stats_files = QLabel("Pliki: -")
-        self.stats_folders = QLabel("Foldery: -")
-
-        stats_layout.addWidget(self.stats_path)
-        stats_layout.addWidget(self.stats_size)
-        stats_layout.addWidget(self.stats_files)
-        stats_layout.addWidget(self.stats_folders)
-        stats_layout.addStretch()
-
-        bottom_layout.addWidget(self.stats_panel, 1)
-
-        bottom_widget = QWidget()
-        bottom_widget.setLayout(bottom_layout)
-        bottom_widget.setMaximumHeight(150)
-        main_layout.addWidget(bottom_widget)
 
         self.update_status_label()
 
@@ -437,7 +467,7 @@ class MainWindow(QMainWindow):
             self.update_folder_stats()
 
     def log_message(self, message):
-        self.log_output.append(message)
+        self.stats_content.setText(message)
         QApplication.processEvents()
 
     def set_buttons_for_processing(self, processing: bool):
@@ -518,7 +548,6 @@ class MainWindow(QMainWindow):
             )
             return
 
-        self.log_output.clear()
         self.log_message(
             f"Rozpoczynanie przebudowy galerii HTML dla: {self.current_work_directory}"
         )
@@ -696,10 +725,7 @@ class MainWindow(QMainWindow):
             folder_path = self.current_work_directory
 
         if not folder_path or not os.path.exists(folder_path):
-            self.stats_path.setText("Ścieżka: -")
-            self.stats_size.setText("Rozmiar: -")
-            self.stats_files.setText("Pliki: -")
-            self.stats_folders.setText("Foldery: -")
+            self.stats_content.setText("Brak danych")
             return
 
         # Wczytaj statystyki z index.json jeśli istnieje
@@ -709,50 +735,30 @@ class MainWindow(QMainWindow):
                 with open(index_json, "r", encoding="utf-8") as f:
                     data = json.load(f)
                     folder_info = data.get("folder_info", {})
-
-                    self.stats_path.setText(f"Ścieżka: {folder_path}")
-                    self.stats_size.setText(
-                        f"Rozmiar: {folder_info.get('total_size_readable', '0 B')}"
-                    )
-                    self.stats_files.setText(
-                        f"Pliki: {folder_info.get('file_count', 0)}"
-                    )
-                    self.stats_folders.setText(
+                    stats_text = (
+                        f"Ścieżka: {folder_path}\n"
+                        f"Rozmiar: {folder_info.get('total_size_readable', '0 B')}\n"
+                        f"Pliki: {folder_info.get('file_count', 0)}\n"
                         f"Foldery: {folder_info.get('subdir_count', 0)}"
                     )
-            except:
-                self.stats_path.setText(f"Ścieżka: {folder_path}")
-                self.stats_size.setText("Rozmiar: Błąd odczytu")
-                self.stats_files.setText("Pliki: -")
-                self.stats_folders.setText("Foldery: -")
+                    self.stats_content.setText(stats_text)
+            except Exception:
+                self.stats_content.setText("Błąd odczytu")
         else:
-            self.stats_path.setText(f"Ścieżka: {folder_path}")
-            self.stats_size.setText("Rozmiar: Nie zeskanowano")
-            self.stats_files.setText("Pliki: -")
-            self.stats_folders.setText("Foldery: -")
+            self.stats_content.setText("Nie zeskanowano")
 
 
 if __name__ == "__main__":
-    # Konfiguracja dla QtWebEngine, jeśli potrzebna (np. debug port)
-    # os.environ["QTWEBENGINE_REMOTE_DEBUGGING"] = "9223"
     app = QApplication(sys.argv)
+
+    # ZASTOSUJ CIEMNY MOTYW
+    app.setStyleSheet(qdarktheme.load_stylesheet("dark"))
+
+    # Opcjonalnie: konfiguracja dla lepszego wyglądu
+    app.setStyle("Fusion")  # Lepszy styl bazowy
 
     script_dir = os.path.dirname(os.path.abspath(__file__))
     templates_path = os.path.join(script_dir, "templates")
-    if not os.path.exists(templates_path):
-        os.makedirs(templates_path)
-
-    dummy_template_path = os.path.join(templates_path, "gallery_template.html")
-    if not os.path.exists(dummy_template_path):
-        with open(dummy_template_path, "w", encoding="utf-8") as f:
-            f.write(
-                "<!DOCTYPE html><html><head><title>{{ current_folder_display_name }}</title></head><body><h1>{{ current_folder_display_name }}</h1><p>To jest minimalny szablon.</p></body></html>"
-            )
-
-    dummy_css_path = os.path.join(templates_path, "gallery_styles.css")
-    if not os.path.exists(dummy_css_path):
-        with open(dummy_css_path, "w", encoding="utf-8") as f:
-            f.write("/* Minimal CSS */ body { font-family: sans-serif; margin: 5px; }")
 
     main_win = MainWindow()
     main_win.show()
