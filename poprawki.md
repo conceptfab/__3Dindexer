@@ -1,123 +1,50 @@
-Plik templates/gallery_styles.css - DODAJ BRAKUJĄCE STYLE
-css/* SUBFOLDER ITEM - DZIAŁAJĄCE KLIKNIĘCIE */
-.subfolder-item {
-  background: var(--bg-tertiary);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  padding: 16px;
-  text-align: center;
-  transition: var(--transition);
-  cursor: pointer;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 8px;
-  text-decoration: none;
-}
+Sugerowane ulepszenia dla obecnego kodu
+Zamiast migracji, warto ulepszyć to co masz:
+1. Optymalizacja UI - main.py
+python# Dodaj progress bar dla lepszego UX
+class MainWindow(QMainWindow):
+    def init_ui(self):
+        # ... existing code ...
+        
+        # Dodaj progress bar
+        self.progress_bar = QProgressBar()
+        self.progress_bar.setVisible(False)
+        main_layout.addWidget(self.progress_bar)
+        
+    def start_scan(self):
+        # Pokazuj postęp
+        self.progress_bar.setVisible(True)
+        self.progress_bar.setRange(0, 0)  # Indeterminate
+2. Lepsza obsługa błędów - scanner_logic.py
+python# Dodaj retry mechanism dla problematycznych folderów
+def process_folder_with_retry(folder_path, max_retries=3):
+    for attempt in range(max_retries):
+        try:
+            return process_folder(folder_path)
+        except PermissionError:
+            if attempt == max_retries - 1:
+                raise
+            time.sleep(0.5)  # Krótka pauza przed retry
+3. Ulepszone cachowanie - gallery_generator.py
+python# Dodaj inteligentne cachowanie
+def should_regenerate_gallery(index_json_path, output_html_path):
+    if not os.path.exists(output_html_path):
+        return True
+    
+    # Sprawdź czy template lub CSS się zmieniły
+    template_files = ['gallery_template.html', 'gallery_styles.css']
+    for template_file in template_files:
+        if os.path.getmtime(template_file) > os.path.getmtime(output_html_path):
+            return True
+    
+    return os.path.getmtime(index_json_path) > os.path.getmtime(output_html_path)
+Podsumowanie
+Zostań przy PyQt6 - masz już doskonałą bazę. Electron nie da Ci znaczących korzyści dla tego typu aplikacji, a wprowadzi niepotrzebną złożoność i overhead.
+Skoncentruj się na:
 
-.subfolder-item:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 8px 24px rgba(88, 166, 255, 0.15);
-  border-color: var(--accent);
-  background: var(--bg-quaternary);
-}
+Optymalizacji istniejącego kodu
+Dodaniu więcej funkcji (filtrowanie, wyszukiwanie, eksport)
+Poprawie UX (lepsze progress bary, skróty klawiszowe)
+Może dodaniu prostego HTTP serwera do udostępniania galerii lokalnie
 
-.folder-icon {
-  font-size: 2rem;
-  margin-bottom: 8px;
-  cursor: pointer;
-  pointer-events: none; /* Żeby onclick na rodzicu działał */
-}
-
-.subfolder-item a {
-  color: var(--text-primary);
-  text-decoration: none;
-  font-weight: 500;
-  font-size: 0.95rem;
-  margin-bottom: 8px;
-  cursor: pointer;
-  pointer-events: none; /* Żeby onclick na rodzicu działał */
-}
-
-.subfolder-item:hover a {
-  color: var(--accent);
-}
-
-.folder-stats {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  font-size: 0.8rem;
-  color: var(--text-secondary);
-  cursor: pointer;
-  pointer-events: none; /* Żeby onclick na rodzicu działał */
-}
-
-.folder-stats span {
-  background: var(--bg-primary);
-  padding: 2px 6px;
-  border-radius: 4px;
-}
-
-/* DWIE KOLUMNY NA DOLE */
-.bottom-columns {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 30px;
-  margin-top: 32px;
-}
-
-.left-column,
-.right-column {
-  /* Każda kolumna zajmuje 50% szerokości */
-}
-
-.image-list {
-  list-style: none;
-  padding: 0;
-  background: var(--bg-tertiary);
-  border-radius: var(--radius);
-  overflow: hidden;
-  border: 1px solid var(--border);
-}
-
-.image-list li {
-  padding: 16px 20px;
-  border-bottom: 1px solid var(--border-muted);
-  transition: var(--transition);
-}
-
-.image-list li:last-child {
-  border-bottom: none;
-}
-
-.image-list li:hover {
-  background: var(--bg-quaternary);
-}
-
-.image-list a {
-  color: var(--text-primary);
-  text-decoration: none;
-  font-weight: 500;
-}
-
-.image-list a:hover {
-  color: var(--accent);
-}
-
-/* RESPONSIVE dla dwóch kolumn */
-@media (max-width: 768px) {
-  .bottom-columns {
-    grid-template-columns: 1fr;
-    gap: 20px;
-  }
-}
-Co zostało naprawione:
-
-✅ PRZYCISKI FOLDERÓW DZIAŁAJĄ - dodano onclick="window.location.href='{{ sf.link }}'"
-✅ USUNIĘTO NAGŁÓWEK "Podfoldery" - zbędny tekst
-✅ DWIE KOLUMNY NA DOLE - "Pliki bez podglądu" po lewej, "Pozostałe obrazy" po prawej
-✅ POINTER-EVENTS: NONE - żeby onclick działał na całym pudełku folderu
-✅ TYLKO ŚCIEŻKA NA GÓRZE - breadcrumb bez powtórzeń
-
-Teraz wszystko kurwa działa!
+Twój kod jest już bardzo profesjonalny - rozwijaj go dalej w PyQt6! 🚀
