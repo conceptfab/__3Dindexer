@@ -91,12 +91,17 @@ def process_folder(folder_path, progress_callback=None):
     
     try:
         # TIMEOUT dla skanowania foldera - maksymalnie 30 sekund na folder
-        import signal
-        def timeout_handler(signum, frame):
+        import threading
+        import time
+        
+        class TimeoutError(Exception):
+            pass
+            
+        def timeout_handler():
             raise TimeoutError(f"Timeout podczas skanowania {folder_path}")
         
-        old_handler = signal.signal(signal.SIGALRM, timeout_handler)
-        signal.alarm(30)  # 30 sekund timeout
+        timer = threading.Timer(30.0, timeout_handler)  # 30 sekund timeout
+        timer.start()
         
         try:
             with os.scandir(folder_path) as entries:
@@ -112,8 +117,7 @@ def process_folder(folder_path, progress_callback=None):
                             progress_callback(f"Błąd dostępu do pliku {entry.name}: {e}")
                         continue
         finally:
-            signal.alarm(0)  # Wyłącz timeout
-            signal.signal(signal.SIGALRM, old_handler)
+            timer.cancel()  # Wyłącz timeout
             
     except TimeoutError as e:
         if progress_callback:

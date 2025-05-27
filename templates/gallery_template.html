@@ -8,6 +8,7 @@
   </head>
   <body>
     <div class="container">
+      <!-- TYLKO BREADCRUMB - ścieżka -->
       <div class="breadcrumb">
         {% for part in breadcrumb_parts %} {% if part.link %}
         <a href="{{ part.link }}">{{ part.name }}</a> <span>/</span>
@@ -16,14 +17,17 @@
         {% endif %} {% endfor %}
       </div>
 
-      <h1>{{ current_folder_display_name }}</h1>
+      <!-- USUNIĘTO NAGŁÓWEK H1 -->
 
       {% if subfolders %}
       <div class="section">
-        <h2>📁 Podfoldery ({{ subfolders|length }})</h2>
+        <!-- USUNIĘTO NAGŁÓWEK H2 - zbędny tekst -->
         <div class="subfolders-grid">
           {% for sf in subfolders %}
-          <div class="subfolder-item">
+          <div
+            class="subfolder-item"
+            onclick="window.location.href='{{ sf.link }}'"
+          >
             <div class="folder-icon">📁</div>
             <a href="{{ sf.link }}">{{ sf.name }}</a>
             <div class="folder-stats">
@@ -111,19 +115,40 @@
           {% endfor %}
         </div>
       </div>
-      {% endif %} {% if files_without_previews %}
-      <div class="section">
-        <h2>📄 Pliki bez podglądu ({{ files_without_previews|length }})</h2>
-        <ul class="no-preview-list">
-          {% for file in files_without_previews %}
-          <li>
-            <a href="{{ file.archive_link }}" title="Otwórz: {{ file.name }}"
-              >{{ file.name }}</a
-            >
-            <span class="file-info"> — {{ file.size_readable }}</span>
-          </li>
-          {% endfor %}
-        </ul>
+      {% endif %}
+
+      <!-- DWIE KOLUMNY NA DOLE - PLIKI BEZ PODGLĄDU I POZOSTAŁE OBRAZY -->
+      {% if files_without_previews or other_images %}
+      <div class="bottom-columns">
+        {% if files_without_previews %}
+        <div class="left-column">
+          <h2>📄 Pliki bez podglądu ({{ files_without_previews|length }})</h2>
+          <ul class="no-preview-list">
+            {% for file in files_without_previews %}
+            <li>
+              <a href="{{ file.archive_link }}" title="Otwórz: {{ file.name }}"
+                >{{ file.name }}</a
+              >
+              <span class="file-info"> — {{ file.size_readable }}</span>
+            </li>
+            {% endfor %}
+          </ul>
+        </div>
+        {% endif %} {% if other_images %}
+        <div class="right-column">
+          <h2>🎨 Pozostałe obrazy ({{ other_images|length }})</h2>
+          <ul class="image-list">
+            {% for image in other_images %}
+            <li>
+              <a href="{{ image.file_link }}" title="Otwórz: {{ image.name }}"
+                >{{ image.name }}</a
+              >
+              <span class="file-info"> — {{ image.size_readable }}</span>
+            </li>
+            {% endfor %}
+          </ul>
+        </div>
+        {% endif %}
       </div>
       {% endif %}
     </div>
@@ -150,7 +175,7 @@
           previewImg.src = imageSrc;
           previewModal.classList.add('show');
           previewBackdrop.classList.add('show');
-          previewModal.style.transform = 'translate(-50%, -50%)';
+          previewModal.style.transform = 'translate(-50%, -50)';
         }
 
         function hidePreview() {

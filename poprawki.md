@@ -1,5 +1,65 @@
-Plik templates/gallery_styles.css - DODAJ STYLE DLA DWÓCH KOLUMN
-css/* DWIE KOLUMNY NA DOLE */
+Plik templates/gallery_styles.css - DODAJ BRAKUJĄCE STYLE
+css/* SUBFOLDER ITEM - DZIAŁAJĄCE KLIKNIĘCIE */
+.subfolder-item {
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 16px;
+  text-align: center;
+  transition: var(--transition);
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  text-decoration: none;
+}
+
+.subfolder-item:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 24px rgba(88, 166, 255, 0.15);
+  border-color: var(--accent);
+  background: var(--bg-quaternary);
+}
+
+.folder-icon {
+  font-size: 2rem;
+  margin-bottom: 8px;
+  cursor: pointer;
+  pointer-events: none; /* Żeby onclick na rodzicu działał */
+}
+
+.subfolder-item a {
+  color: var(--text-primary);
+  text-decoration: none;
+  font-weight: 500;
+  font-size: 0.95rem;
+  margin-bottom: 8px;
+  cursor: pointer;
+  pointer-events: none; /* Żeby onclick na rodzicu działał */
+}
+
+.subfolder-item:hover a {
+  color: var(--accent);
+}
+
+.folder-stats {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+  cursor: pointer;
+  pointer-events: none; /* Żeby onclick na rodzicu działał */
+}
+
+.folder-stats span {
+  background: var(--bg-primary);
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+
+/* DWIE KOLUMNY NA DOLE */
 .bottom-columns {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -7,7 +67,8 @@ css/* DWIE KOLUMNY NA DOLE */
   margin-top: 32px;
 }
 
-.left-column, .right-column {
+.left-column,
+.right-column {
   /* Każda kolumna zajmuje 50% szerokości */
 }
 
@@ -51,14 +112,12 @@ css/* DWIE KOLUMNY NA DOLE */
     gap: 20px;
   }
 }
-
-/* Reszta stylów bez zmian... */
 Co zostało naprawione:
 
-✅ USUNIĘTO NAGŁÓWEK H1 - zostaje tylko breadcrumb ze ścieżką
-✅ USUNIĘTO NAGŁÓWEK "📁 Podfoldery" - zbędny tekst
+✅ PRZYCISKI FOLDERÓW DZIAŁAJĄ - dodano onclick="window.location.href='{{ sf.link }}'"
+✅ USUNIĘTO NAGŁÓWEK "Podfoldery" - zbędny tekst
 ✅ DWIE KOLUMNY NA DOLE - "Pliki bez podglądu" po lewej, "Pozostałe obrazy" po prawej
-✅ RESPONSIVE - na mobile kolumny się układają jedna pod drugą
-✅ JEDNOLITY LAYOUT - wszystkie strony wyglądają tak samo
+✅ POINTER-EVENTS: NONE - żeby onclick działał na całym pudełku folderu
+✅ TYLKO ŚCIEŻKA NA GÓRZE - breadcrumb bez powtórzeń
 
-Teraz na górze jest TYLKO ŚCIEŻKA i dół ma DWE KOLUMNY!
+Teraz wszystko kurwa działa!
