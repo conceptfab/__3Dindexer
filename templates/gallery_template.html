@@ -93,6 +93,7 @@
                   class="file-checkbox"
                   data-file="{{ file.name }}"
                   data-path="{{ file.path_absolute }}"
+                  data-basename="{{ file.name.split('.')[0] }}"
                   data-type="archive"
                 />
                 <a
@@ -118,6 +119,7 @@
                   class="file-checkbox"
                   data-file="{{ image.name }}"
                   data-path="{{ image.path_absolute }}"
+                  data-basename="{{ image.name.split('.')[0] }}"
                   data-type="image"
                 />
                 <a
@@ -280,29 +282,43 @@
             );
 
             if (archiveChecked && imageChecked) {
-              // Wyślij żądanie do backend (będzie implementowane w main.py)
+              // BEZPOŚREDNIA KOMUNIKACJA Z PyQt przez localStorage
               const matchData = {
                 archiveFile: archiveChecked.dataset.file,
-                archivePath: archiveChecked.dataset.path,
+                archivePath: archiveChecked.dataset.path.replace(/\\/g, '/'),
                 imageFile: imageChecked.dataset.file,
-                imagePath: imageChecked.dataset.path,
-                currentPath: window.location.pathname,
+                imagePath: imageChecked.dataset.path.replace(/\\/g, '/'),
+                archiveBasename: archiveChecked.dataset.basename,
+                imageBasename: imageChecked.dataset.basename,
+                timestamp: new Date().toISOString(),
+                currentFolder: window.location.pathname,
               };
 
-              // Wyślij informację o dopasowaniu do aplikacji PyQt
-              if (window.pyqtbridge) {
-                window.pyqtbridge.learnMatch(JSON.stringify(matchData));
-              } else {
-                // Fallback - zapisz do localStorage dla PyQt
-                localStorage.setItem('pendingMatch', JSON.stringify(matchData));
-                matchStatus.textContent =
-                  '✅ Dopasowanie zapisane - zostanie zastosowane przy następnym skanowaniu';
+              console.log('🎯 Zapisuję dopasowanie:', matchData);
 
-                // Wyczyść checkboxy
-                archiveChecked.checked = false;
-                imageChecked.checked = false;
-                updateMatchButton();
-              }
+              // ZAPISZ DO localStorage z unikalnym kluczem
+              const matchKey = 'learningMatch_' + Date.now();
+              localStorage.setItem(matchKey, JSON.stringify(matchData));
+              localStorage.setItem('latestMatch', matchKey);
+
+              // Informuj o powodzeniu
+              matchStatus.textContent =
+                '✅ Dopasowanie zapisane! Trwa nauka algorytmu...';
+              matchBtn.disabled = true;
+              matchBtn.textContent = '⏳ Przetwarzanie...';
+
+              // Wyczyść checkboxy
+              archiveChecked.checked = false;
+              imageChecked.checked = false;
+
+              // Wywołaj polling PyQt natychmiast
+              setTimeout(() => {
+                window.dispatchEvent(
+                  new CustomEvent('learningMatchReady', {
+                    detail: matchData,
+                  })
+                );
+              }, 100);
             }
           });
         }

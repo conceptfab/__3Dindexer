@@ -219,7 +219,7 @@ class MainWindow(QMainWindow):
             print(f"🔍 INIT - Wywołuję update_folder_stats()")
             self.update_folder_stats()
             # Sprawdź oczekujące dopasowania po załadowaniu galerii
-            QTimer.singleShot(1000, self.check_for_pending_matches)
+            QTimer.singleShot(1000, self.check_for_learning_matches)
 
     def setup_theme_menu(self):
         """Dodaje menu przełączania motywów."""
@@ -1028,79 +1028,208 @@ class MainWindow(QMainWindow):
 
     def setup_learning_bridge(self):
         """Konfiguruje most komunikacyjny z JavaScript dla funkcji uczenia się"""
-        # Dodaj obsługę learning bridge w WebView
         self.web_view.loadFinished.connect(self.inject_learning_bridge)
+
+        # Timer do sprawdzania nowych dopasowań co sekundę
+        self.learning_timer = QTimer()
+        self.learning_timer.timeout.connect(self.check_for_learning_matches)
+        self.learning_timer.start(1000)  # Co sekundę
 
     def inject_learning_bridge(self):
         """Wstrzykuje bridge JavaScript dla komunikacji z funkcją uczenia się"""
         bridge_js = """
-        window.pyqtbridge = {
-            learnMatch: function(matchDataJson) {
-                // Dane zostaną odebrane przez PyQt
-                console.log('Learning match data:', matchDataJson);
-                return matchDataJson;
-            }
-        };
+        console.log('🔌 Learning bridge injected');
+        window.addEventListener('learningMatchReady', function(event) {
+            console.log('🎯 Learning match event received:', event.detail);
+        });
         """
         self.web_view.page().runJavaScript(bridge_js)
 
-    def check_for_pending_matches(self):
-        """Sprawdza czy są oczekujące dopasowania w localStorage"""
+    def check_for_learning_matches(self):
+        """Sprawdza localStorage pod kątem nowych dopasowań do nauki"""
         js_code = """
         (function() {
-            const pendingMatch = localStorage.getItem('pendingMatch');
-            if (pendingMatch) {
-                localStorage.removeItem('pendingMatch');
-                return pendingMatch;
+            try {
+                const latestMatchKey = localStorage.getItem('latestMatch');
+                if (latestMatchKey) {
+                    const matchData = localStorage.getItem(latestMatchKey);
+                    if (matchData) {
+                        // Usuń z localStorage
+                        localStorage.removeItem(latestMatchKey);
+                        localStorage.removeItem('latestMatch');
+                        console.log('🔍 Found learning match:', matchData);
+                        return matchData;
+                    }
+                }
+                return null;
+            } catch(e) {
+                console.error('Error checking learning matches:', e);
+                return null;
             }
-            return null;
         })();
         """
 
-        def handle_pending_match(result):
-            if result:
-                try:
-                    import json
+        self.web_view.page().runJavaScript(js_code, self.handle_learning_match)
 
-                    match_data = json.loads(result)
-                    self.process_learning_match(match_data)
-                except Exception as e:
-                    self.log_message(f"Błąd przetwarzania dopasowania: {e}")
-
-        self.web_view.page().runJavaScript(js_code, handle_pending_match)
-
-    def process_learning_match(self, match_data):
-        """Przetwarza nowe dopasowanie i uczy algorytm"""
-        try:
-            archive_file = match_data.get("archiveFile", "")
-            image_file = match_data.get("imageFile", "")
-            archive_path = match_data.get("archivePath", "")
-            image_path = match_data.get("imagePath", "")
-
-            self.log_message(f"Nauczone dopasowanie: {archive_file} ↔ {image_file}")
-
-            # Zapisz nowe dopasowanie do pliku uczenia się
-            self.save_learning_data(archive_file, image_file, archive_path, image_path)
-
-            # Opcjonalnie: natychmiastowe ponowne skanowanie folderu
-            if self.current_work_directory:
-                reply = QMessageBox.question(
-                    self,
-                    "Zastosować nauczone dopasowanie?",
-                    f"Czy chcesz natychmiast ponownie przeskanować folder, "
-                    f"aby zastosować nauczone dopasowanie?\n\n"
-                    f"Dopasowanie: {archive_file} ↔ {image_file}",
-                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-                    QMessageBox.StandardButton.Yes,
+    def handle_learning_match(self, result):
+        """Obsługuje nowe dopasowanie z JavaScript"""
+        if result:
+            try:
+                match_data = json.loads(result)
+                print(f"🎓 OTRZYMANO NOWE DOPASOWANIE: {match_data}")
+                self.log_message(
+                    f"🎓 Nowe dopasowanie: {match_data['archiveFile']} ↔ {match_data['imageFile']}"
                 )
-                if reply == QMessageBox.StandardButton.Yes:
-                    self.start_scan()
+
+                # Zapisz dopasowanie
+                self.save_learning_data(
+                    match_data["archiveFile"],
+                    match_data["imageFile"],
+                    match_data["archivePath"],
+                    match_data["imagePath"],
+                )
+
+                # NATYCHMIASTOWE ZASTOSOWANIE - ponowne skanowanie aktualnego folderu
+                self.apply_learning_immediately(match_data)
+
+            except Exception as e:
+                print(f"❌ Błąd przetwarzania dopasowania: {e}")
+                self.log_message(f"Błąd przetwarzania dopasowania: {e}")
+
+    def apply_learning_immediately(self, match_data):
+        """Natychmiast stosuje nauczone dopasowanie"""
+        try:
+            # Znajdź folder z którego pochodzi dopasowanie
+            archive_path = match_data.get("archivePath", "")
+            if archive_path:
+                current_folder = os.path.dirname(archive_path.replace("/", os.sep))
+                print(f"🔄 Ponowne skanowanie folderu: {current_folder}")
+
+                # Uruchom ponowne skanowanie tego konkretnego folderu
+                self.rescan_specific_folder(current_folder)
 
         except Exception as e:
-            self.log_message(f"Błąd przetwarzania nauki: {e}")
-            QMessageBox.warning(
-                self, "Błąd", f"Nie udało się przetworzyć dopasowania: {e}"
+            print(f"❌ Błąd zastosowania nauki: {e}")
+            self.log_message(f"Błąd zastosowania nauki: {e}")
+
+    def rescan_specific_folder(self, folder_path):
+        """Ponownie skanuje konkretny folder i odświeża galerię"""
+        try:
+            if not os.path.exists(folder_path):
+                print(f"❌ Folder nie istnieje: {folder_path}")
+                return
+
+            self.log_message(f"🔄 Ponowne skanowanie: {folder_path}")
+
+            # Uruchom skanowanie w tle dla tego folderu
+            import threading
+
+            def scan_and_refresh():
+                try:
+                    # Skanuj folder
+                    scanner_logic.process_folder(
+                        folder_path, lambda msg: print(f"📁 {msg}")
+                    )
+
+                    # Odśwież galerię w głównym wątku
+                    QTimer.singleShot(
+                        500, lambda: self.refresh_gallery_after_learning(folder_path)
+                    )
+
+                except Exception as e:
+                    print(f"❌ Błąd skanowania: {e}")
+
+            thread = threading.Thread(target=scan_and_refresh)
+            thread.daemon = True
+            thread.start()
+
+        except Exception as e:
+            print(f"❌ Błąd rescan_specific_folder: {e}")
+
+    def refresh_gallery_after_learning(self, scanned_folder):
+        """Odświeża galerię po zastosowaniu nauki"""
+        try:
+            print(f"🔄 Odświeżanie galerii po nauce dla: {scanned_folder}")
+
+            # Sprawdź czy to aktualny folder lub jego podfolder
+            current_url = self.web_view.url().toLocalFile()
+            if current_url and "_gallery_cache" in current_url:
+                gallery_folder = os.path.dirname(current_url)
+                original_folder = self.get_original_folder_from_gallery_path(
+                    gallery_folder
+                )
+
+                if original_folder and (
+                    original_folder == scanned_folder
+                    or scanned_folder.startswith(original_folder)
+                ):
+                    print(
+                        f"✅ Folder {scanned_folder} jest częścią aktualnej galerii - odświeżam"
+                    )
+
+                    # Przebuduj galerię
+                    self.rebuild_gallery_silent()
+
+                    # Poinformuj o sukcesie przez JavaScript
+                    success_js = """
+                    const matchBtn = document.getElementById('matchPreviewBtn');
+                    const matchStatus = document.getElementById('matchStatus');
+                    if (matchBtn && matchStatus) {
+                        matchBtn.disabled = false;
+                        matchBtn.textContent = '🎯 Dopasuj podgląd';
+                        matchStatus.textContent = '🎉 Dopasowanie zastosowane! Galeria została odświeżona.';
+                        
+                        setTimeout(() => {
+                            matchStatus.textContent = '';
+                        }, 5000);
+                    }
+                    """
+                    self.web_view.page().runJavaScript(success_js)
+
+                    self.log_message("✅ Algorytm nauczony! Galeria odświeżona.")
+
+            else:
+                print(f"ℹ️ Folder {scanned_folder} nie jest częścią aktualnej galerii")
+
+        except Exception as e:
+            print(f"❌ Błąd odświeżania galerii: {e}")
+
+    def rebuild_gallery_silent(self):
+        """Przebudowuje galerię w tle bez pokazywania dialogów"""
+        try:
+            if not self.current_work_directory:
+                return
+
+            # Sprawdź czy jest już proces
+            if self.gallery_thread and self.gallery_thread.isRunning():
+                return
+
+            print("🔄 Ciche przebudowanie galerii...")
+
+            self.gallery_thread = GalleryWorker(
+                self.current_work_directory, self.GALLERY_CACHE_DIR
             )
+            self.gallery_thread.progress_signal.connect(lambda msg: print(f"🏗️ {msg}"))
+            self.gallery_thread.finished_signal.connect(self.gallery_rebuilt_silently)
+            self.gallery_thread.start()
+
+        except Exception as e:
+            print(f"❌ Błąd rebuild_gallery_silent: {e}")
+
+    def gallery_rebuilt_silently(self, root_html_path):
+        """Obsługuje zakończenie cichego przebudowania galerii"""
+        try:
+            if root_html_path:
+                print(f"✅ Galeria przebudowana cicho: {root_html_path}")
+
+                # Odśwież aktualną stronę
+                current_url = self.web_view.url()
+                self.web_view.reload()
+
+            self.gallery_thread = None
+
+        except Exception as e:
+            print(f"❌ Błąd gallery_rebuilt_silently: {e}")
 
     def save_learning_data(self, archive_file, image_file, archive_path, image_path):
         """Zapisuje dane uczenia się do pliku JSON"""
@@ -1113,6 +1242,17 @@ class MainWindow(QMainWindow):
                 with open(learning_file, "r", encoding="utf-8") as f:
                     learning_data = json.load(f)
 
+            # Sprawdź czy już istnieje takie dopasowanie
+            archive_basename = os.path.splitext(archive_file)[0]
+            image_basename = os.path.splitext(image_file)[0]
+
+            # Usuń stare dopasowanie dla tego samego archiwum jeśli istnieje
+            learning_data = [
+                item
+                for item in learning_data
+                if item.get("archive_basename", "").lower() != archive_basename.lower()
+            ]
+
             # Dodaj nowe dopasowanie
             new_match = {
                 "archive_file": archive_file,
@@ -1120,8 +1260,8 @@ class MainWindow(QMainWindow):
                 "archive_path": archive_path,
                 "image_path": image_path,
                 "timestamp": datetime.now().isoformat(),
-                "archive_basename": os.path.splitext(archive_file)[0],
-                "image_basename": os.path.splitext(image_file)[0],
+                "archive_basename": archive_basename,
+                "image_basename": image_basename,
             }
 
             learning_data.append(new_match)
@@ -1130,11 +1270,13 @@ class MainWindow(QMainWindow):
             with open(learning_file, "w", encoding="utf-8") as f:
                 json.dump(learning_data, f, indent=2, ensure_ascii=False)
 
+            print(f"💾 Zapisano dane uczenia się: {len(learning_data)} dopasowań")
             self.log_message(
-                f"Zapisano dane uczenia się: {len(learning_data)} dopasowań"
+                f"💾 Zapisano nauczone dopasowanie: {archive_file} ↔ {image_file}"
             )
 
         except Exception as e:
+            print(f"❌ Błąd zapisu danych uczenia się: {e}")
             self.log_message(f"Błąd zapisu danych uczenia się: {e}")
 
 
