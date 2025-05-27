@@ -24,7 +24,9 @@ from PyQt6.QtWidgets import (
     QSizePolicy,
     QVBoxLayout,
     QWidget,
+    QSlider,
 )
+from PyQt6.QtCore import Qt
 
 # Importy z naszych modułów
 import config_manager
@@ -160,8 +162,13 @@ class CustomWebEnginePage(QWebEnginePage):
         super().__init__(parent)
 
     def acceptNavigationRequest(self, url, type, isMainFrame):
-        # type: QWebEnginePage.NavigationTypeLinkClicked
-        # isMainFrame: True if the navigation is for the main frame
+        """Obsługuje żądania nawigacji w przeglądarce.
+        
+        Args:
+            url: URL do którego nastąpi nawigacja
+            type: Typ nawigacji (QWebEnginePage.NavigationTypeLinkClicked)
+            isMainFrame: True jeśli nawigacja jest dla głównej ramki
+        """
         scheme = url.scheme()
 
         # Jeśli to link do lokalnego pliku HTML (nasza galeria)
@@ -268,6 +275,21 @@ class MainWindow(QMainWindow):
         """
         )
         controls_layout.addWidget(self.progress_bar)
+
+        # Dodajemy suwak rozmiaru kafelków
+        size_control_layout = QHBoxLayout()
+        self.size_label = QLabel("Rozmiar kafelków: 200px")
+        self.size_slider = QSlider(Qt.Orientation.Horizontal)
+        self.size_slider.setMinimum(100)
+        self.size_slider.setMaximum(400)
+        self.size_slider.setValue(200)
+        self.size_slider.setTickPosition(QSlider.TickPosition.TicksBelow)
+        self.size_slider.setTickInterval(50)
+        self.size_slider.valueChanged.connect(self.update_tile_size)
+        
+        size_control_layout.addWidget(self.size_label)
+        size_control_layout.addWidget(self.size_slider)
+        controls_layout.addLayout(size_control_layout)
 
         action_layout = QHBoxLayout()
 
