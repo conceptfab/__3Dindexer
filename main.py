@@ -170,6 +170,13 @@ class MainWindow(QMainWindow):
         self.init_ui()
         self.update_status_label()
         self.update_gallery_buttons_state()
+        
+        # AUTOMATYCZNE ŁADOWANIE GALERII PRZY STARCIE
+        if self.current_work_directory:
+            self.current_gallery_root_html = self.get_current_gallery_index_html()
+            if self.current_gallery_root_html and os.path.exists(self.current_gallery_root_html):
+                self.show_gallery_in_app()
+            self.update_folder_stats()
 
 
     def init_ui(self):
@@ -188,6 +195,7 @@ class MainWindow(QMainWindow):
         
         self.select_folder_button = QPushButton("📁 Wybierz Folder")
         self.select_folder_button.setStyleSheet("QPushButton { background-color: #4CAF50; color: white; font-weight: bold; }")
+        self.select_folder_button.clicked.connect(self.select_work_directory)
         folder_layout.addWidget(self.select_folder_button)
         controls_layout.addLayout(folder_layout)
 

@@ -1,12 +1,8 @@
-Rozumiem twoje frustracje! Przeprowadzę poprawki aby:
-
-Usunąć powtarzające się nagłówki - zostanie tylko jeden
-Naprawić białe tło statystyk w aplikacji na ciemny schemat
-Usunąć statystyki ze strony - będą tylko w aplikacji
-Naprawić suwak rozmiaru w aplikacji
-
-Zmiany w kodzie
-1. Plik templates/gallery_template.html
+1. Przycisk "Wybierz Folder" nie działa
+W pliku main.py w funkcji init_ui() brakuje połączenia sygnału:
+pythonself.select_folder_button.clicked.connect(self.select_work_directory)
+2. Biała strona przy pojedynczych plikach + automatyczne ładowanie
+W pliku templates/gallery_template.html usuń linię z ścieżką która psuje layout:
 html<!DOCTYPE html>
 <html lang="pl">
   <head>
@@ -25,7 +21,7 @@ html<!DOCTYPE html>
         {% endif %} {% endfor %}
       </div>
 
-      <!-- TYLKO JEDEN NAGŁÓWEK - USUNIĘTO POWTÓRZENIA -->
+      <!-- TYLKO NAGŁÓWEK - USUNIĘTO ŚCIEŻKĘ KTÓRA PSUŁA LAYOUT -->
       <h1>{{ current_folder_display_name }}</h1>
 
       {% if subfolders %}
@@ -143,8 +139,6 @@ html<!DOCTYPE html>
       </div>
       {% endif %}
 
-      <!-- USUNIĘTO SEKCJĘ STATYSTYK - BĘDĄ TYLKO W APLIKACJI -->
-
     </div>
 
     <!-- Modal podglądu -->
@@ -209,13 +203,179 @@ html<!DOCTYPE html>
     </script>
   </body>
 </html>
-2. Plik main.py - funkcja init_ui()
+3. Automatyczne ładowanie galerii przy starcie
+W pliku main.py dodaj automatyczne ładowanie w __init__():
+pythondef __init__(self):
+    super().__init__()
+    self.setWindowTitle("Skaner Folderów i Kreator Galerii")
+    self.setGeometry(100, 100, 1400, 900)
+    self.setMinimumSize(1200, 800)
+
+    self.current_work_directory = config_manager.get_work_directory()
+    self.scanner_thread = None
+    self.gallery_thread = None
+    self.current_gallery_root_html = None
+
+    os.makedirs(self.GALLERY_CACHE_DIR, exist_ok=True)
+    self.init_ui()
+    self.update_status_label()
+    self.update_gallery_buttons_state()
+    
+    # AUTOMATYCZNE ŁADOWANIE GALERII PRZY STARCIE
+    if self.current_work_directory:
+        self.current_gallery_root_html = self.get_current_gallery_index_html()
+        if self.current_gallery_root_html and os.path.exists(self.current_gallery_root_html):
+            self.show_gallery_in_app()
+        self.update_folder_stats()
+4. Zawieszanie przy skanowaniu - dodaj timeout i obsługę błędów
+W pliku scanner_logic.py popraw funkcję process_folder():
+pythondef process_folder(folder_path, progress_callback=None):
+    """
+    Przetwarza pojedynczy folder: zbiera informacje i generuje index.json.
+    Rekursywnie wywołuje się dla podfolderów.
+    """
+    if progress_callback:
+        progress_callback(f"Przetwarzanie folderu: {folder_path}")
+
+    # ZABEZPIECZENIE PRZED ZAWIESZENIEM
+    try:
+        # Sprawdź czy folder jest dostępny w rozsądnym czasie
+        if not os.path.exists(folder_path):
+            if progress_callback:
+                progress_callback(f"Folder nie istnieje: {folder_path}")
+            return
+            
+        if not os.access(folder_path, os.R_OK):
+            if progress_callback:
+                progress_callback(f"Brak dostępu do folderu: {folder_path}")
+            return
+    except Exception as e:
+        if progress_callback:
+            progress_callback(f"Błąd dostępu do folderu {folder_path}: {e}")
+        return
+
+    index_data = {
+        "folder_info": get_folder_stats(folder_path),
+        "files_with_previews": [],
+        "files_without_previews": [],
+        "other_images": []
+    }
+
+    all_items_in_dir = []
+    subdirectories = []
+    
+    try:
+        # TIMEOUT dla skanowania foldera - maksymalnie 30 sekund na folder
+        import signal
+        def timeout_handler(signum, frame):
+            raise TimeoutError(f"Timeout podczas skanowania {folder_path}")
+        
+        old_handler = signal.signal(signal.SIGALRM, timeout_handler)
+        signal.alarm(30)  # 30 sekund timeout
+        
+        try:
+            with os.scandir(folder_path) as entries:
+                for entry in entries:
+                    try:
+                        all_items_in_dir.append(entry.name)
+                        if entry.is_dir():
+                            subdirectories.append(entry.path)
+                        if progress_callback and len(all_items_in_dir) % 100 == 0:
+                            progress_callback(f"Przetworzono {len(all_items_in_dir)} plików w {folder_path}")
+                    except (OSError, PermissionError) as e:
+                        if progress_callback:
+                            progress_callback(f"Błąd dostępu do pliku {entry.name}: {e}")
+                        continue
+        finally:
+            signal.alarm(0)  # Wyłącz timeout
+            signal.signal(signal.SIGALRM, old_handler)
+            
+    except TimeoutError as e:
+        if progress_callback:
+            progress_callback(f"TIMEOUT: {e}")
+        return
+    except (OSError, PermissionError) as e:
+        if progress_callback:
+            progress_callback(f"Błąd dostępu do folderu {folder_path}: {e}")
+        return
+
+    # Reszta funkcji bez zmian...
+    image_filenames = [f for f in all_items_in_dir if os.path.isfile(os.path.join(folder_path, f)) and f.lower().endswith(IMAGE_EXTENSIONS)]
+    other_filenames = [f for f in all_items_in_dir if os.path.isfile(os.path.join(folder_path, f)) and not f.lower().endswith(IMAGE_EXTENSIONS) and f.lower() != "index.json"]
+
+    full_path_image_files = [os.path.join(folder_path, img_name) for img_name in image_filenames]
+    found_previews_paths = set()
+
+    for file_name in other_filenames:
+        file_path = os.path.join(folder_path, file_name)
+        file_basename, _ = os.path.splitext(file_name)
+        
+        try:
+            file_size_bytes = os.path.getsize(file_path)
+        except OSError:
+            file_size_bytes = 0
+
+        file_info = {
+            "name": file_name,
+            "path_absolute": os.path.abspath(file_path),
+            "size_bytes": file_size_bytes,
+            "size_readable": get_file_size_readable(file_size_bytes)
+        }
+
+        preview_file_path = find_matching_preview_for_file(file_basename, full_path_image_files)
+
+        if preview_file_path:
+            file_info["preview_found"] = True
+            file_info["preview_name"] = os.path.basename(preview_file_path)
+            file_info["preview_path_absolute"] = os.path.abspath(preview_file_path)
+            index_data["files_with_previews"].append(file_info)
+            found_previews_paths.add(preview_file_path)
+        else:
+            file_info["preview_found"] = False
+            index_data["files_without_previews"].append(file_info)
+            
+    # Dodaj obrazy, które nie zostały sparowane jako podglądy
+    for img_name in image_filenames:
+        img_path_full = os.path.join(folder_path, img_name)
+        if img_path_full not in found_previews_paths:
+            try:
+                img_size_bytes = os.path.getsize(img_path_full)
+            except OSError:
+                img_size_bytes = 0
+            
+            index_data["other_images"].append({
+                "name": img_name,
+                "path_absolute": os.path.abspath(img_path_full),
+                "size_bytes": img_size_bytes,
+                "size_readable": get_file_size_readable(img_size_bytes)
+            })
+
+    # Zapisz index.json
+    index_json_path = os.path.join(folder_path, "index.json")
+    try:
+        with open(index_json_path, "w", encoding="utf-8") as f:
+            json.dump(index_data, f, indent=4, ensure_ascii=False)
+        if progress_callback:
+            progress_callback(f"Zapisano: {index_json_path}")
+    except IOError as e:
+        if progress_callback:
+            progress_callback(f"Błąd zapisu {index_json_path}: {e}")
+
+    # Przetwarzaj podfoldery
+    for subdir in subdirectories:
+        try:
+            process_folder(subdir, progress_callback)
+        except Exception as e:
+            if progress_callback:
+                progress_callback(f"Błąd przetwarzania podfolderu {subdir}: {e}")
+            continue
+5. Poprawiony init_ui() z działającym przyciskiem
 pythondef init_ui(self):
     main_widget = QWidget(self)
     self.setCentralWidget(main_widget)
     main_layout = QVBoxLayout(main_widget)
 
-    # Górny panel kontrolny - wszystkie przyciski w jednym rzędzie
+    # Górny panel kontrolny
     controls_widget = QWidget()
     controls_layout = QVBoxLayout(controls_widget)
     
@@ -226,6 +386,7 @@ pythondef init_ui(self):
     
     self.select_folder_button = QPushButton("📁 Wybierz Folder")
     self.select_folder_button.setStyleSheet("QPushButton { background-color: #4CAF50; color: white; font-weight: bold; }")
+    # NAPRAWIONE - DODANO POŁĄCZENIE SYGNAŁU
     self.select_folder_button.clicked.connect(self.select_work_directory)
     folder_layout.addWidget(self.select_folder_button)
     controls_layout.addLayout(folder_layout)
@@ -259,7 +420,7 @@ pythondef init_ui(self):
     self.cancel_button.setEnabled(False)
     action_layout.addWidget(self.cancel_button)
     
-    # Suwak rozmiaru kafelków - wspólny dla całego projektu
+    # Suwak rozmiaru kafelków
     size_layout = QHBoxLayout()
     size_layout.addWidget(QLabel("Rozmiar kafelków:"))
     self.size_slider = QSlider(Qt.Orientation.Horizontal)
@@ -332,49 +493,12 @@ pythondef init_ui(self):
     main_layout.addWidget(bottom_widget)
 
     self.update_status_label()
-3. Plik main.py - funkcja update_tile_size()
-pythondef update_tile_size(self):
-    """Aktualizuje rozmiar kafelków w galerii poprzez JavaScript"""
-    size = self.size_slider.value()
-    self.size_label.setText(f"{size}px")
-    
-    # Wyślij JavaScript do WebView aby zaktualizować CSS
-    js_code = f"""
-    var galleries = document.querySelectorAll('.gallery');
-    galleries.forEach(function(gallery) {{
-        gallery.style.gridTemplateColumns = 'repeat(auto-fill, minmax({size}px, 1fr))';
-    }});
-    
-    // Zapisz ustawienie do localStorage
-    localStorage.setItem('galleryTileSize', '{size}');
-    """
-    self.web_view.page().runJavaScript(js_code)
-4. Plik main.py - funkcja show_gallery_in_app()
-pythondef show_gallery_in_app(self):
-    gallery_index_html = self.get_current_gallery_index_html()
-    if gallery_index_html and os.path.exists(gallery_index_html):
-        abs_path = os.path.abspath(gallery_index_html)
-        self.web_view.setUrl(QUrl.fromLocalFile(abs_path))
-        self.log_message(f"Ładowanie galerii do widoku: {abs_path}")
-        
-        # Ustaw rozmiar kafelków po załadowaniu
-        def apply_tile_size():
-            self.update_tile_size()
-        
-        # Opóźnienie aby strona się załadowała
-        QApplication.processEvents()
-        self.web_view.loadFinished.connect(lambda: self.update_tile_size())
-        
-    else:
-        self.log_message("Plik główny galerii nie istnieje. Przebuduj galerię.")
-        QMessageBox.information(self, "Galeria nie istnieje", "Plik główny galerii (index.html) nie istnieje. Przebuduj galerię.")
-        self.web_view.setHtml("<html><body><p style='text-align:center; padding-top:50px;'>Galeria nie istnieje lub nie została jeszcze wygenerowana.</p></body></html>")
-Podsumowanie zmian:
+Główne naprawki:
 
-✅ Usunięto powtarzające się nagłówki - zostaje tylko <h1>{{ current_folder_display_name }}</h1>
-✅ Naprawiono ciemne tło panelu statystyk w aplikacji
-✅ Usunięto statystyki ze strony HTML - są tylko w aplikacji
-✅ Naprawiono suwak rozmiaru kafelków - działa przez JavaScript w aplikacji
-✅ Dodano automatyczne ustawianie rozmiaru po załadowaniu galerii
+✅ Dodano połączenie przycisku "Wybierz Folder"
+✅ Usunięto linię z ścieżką która psuła layout CSS
+✅ Automatyczne ładowanie galerii przy starcie aplikacji
+✅ Timeout i obsługa błędów przy skanowaniu
+✅ Zabezpieczenia przed zawieszaniem się aplikacji
 
-Teraz interfejs będzie czysty i funkcjonalny!
+Teraz wszystko powinno działać poprawnie!

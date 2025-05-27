@@ -62,6 +62,23 @@ def process_folder(folder_path, progress_callback=None):
     if progress_callback:
         progress_callback(f"Przetwarzanie folderu: {folder_path}")
 
+    # ZABEZPIECZENIE PRZED ZAWIESZENIEM
+    try:
+        # Sprawdź czy folder jest dostępny w rozsądnym czasie
+        if not os.path.exists(folder_path):
+            if progress_callback:
+                progress_callback(f"Folder nie istnieje: {folder_path}")
+            return
+            
+        if not os.access(folder_path, os.R_OK):
+            if progress_callback:
+                progress_callback(f"Brak dostępu do folderu: {folder_path}")
+            return
+    except Exception as e:
+        if progress_callback:
+            progress_callback(f"Błąd dostępu do folderu {folder_path}: {e}")
+        return
+
     index_data = {
         "folder_info": get_folder_stats(folder_path),
         "files_with_previews": [],
@@ -71,12 +88,38 @@ def process_folder(folder_path, progress_callback=None):
 
     all_items_in_dir = []
     subdirectories = []
+    
     try:
-        for entry in os.scandir(folder_path):
-            all_items_in_dir.append(entry.name)
-            if entry.is_dir():
-                subdirectories.append(entry.path)
-    except OSError as e:
+        # TIMEOUT dla skanowania foldera - maksymalnie 30 sekund na folder
+        import signal
+        def timeout_handler(signum, frame):
+            raise TimeoutError(f"Timeout podczas skanowania {folder_path}")
+        
+        old_handler = signal.signal(signal.SIGALRM, timeout_handler)
+        signal.alarm(30)  # 30 sekund timeout
+        
+        try:
+            with os.scandir(folder_path) as entries:
+                for entry in entries:
+                    try:
+                        all_items_in_dir.append(entry.name)
+                        if entry.is_dir():
+                            subdirectories.append(entry.path)
+                        if progress_callback and len(all_items_in_dir) % 100 == 0:
+                            progress_callback(f"Przetworzono {len(all_items_in_dir)} plików w {folder_path}")
+                    except (OSError, PermissionError) as e:
+                        if progress_callback:
+                            progress_callback(f"Błąd dostępu do pliku {entry.name}: {e}")
+                        continue
+        finally:
+            signal.alarm(0)  # Wyłącz timeout
+            signal.signal(signal.SIGALRM, old_handler)
+            
+    except TimeoutError as e:
+        if progress_callback:
+            progress_callback(f"TIMEOUT: {e}")
+        return
+    except (OSError, PermissionError) as e:
         if progress_callback:
             progress_callback(f"Błąd dostępu do folderu {folder_path}: {e}")
         return
