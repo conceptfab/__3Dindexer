@@ -7,7 +7,7 @@ import sys
 import webbrowser
 
 import qdarktheme
-from PyQt6.QtCore import QThread, QUrl, pyqtSignal
+from PyQt6.QtCore import Qt, QThread, QUrl, pyqtSignal
 from PyQt6.QtGui import QDesktopServices
 from PyQt6.QtWebEngineCore import QWebEnginePage
 from PyQt6.QtWebEngineWidgets import QWebEngineView
@@ -22,11 +22,10 @@ from PyQt6.QtWidgets import (
     QProgressDialog,
     QPushButton,
     QSizePolicy,
+    QSlider,
     QVBoxLayout,
     QWidget,
-    QSlider,
 )
-from PyQt6.QtCore import Qt
 
 # Importy z naszych modułów
 import config_manager
@@ -163,7 +162,7 @@ class CustomWebEnginePage(QWebEnginePage):
 
     def acceptNavigationRequest(self, url, type, isMainFrame):
         """Obsługuje żądania nawigacji w przeglądarce.
-        
+
         Args:
             url: URL do którego nastąpi nawigacja
             type: Typ nawigacji (QWebEnginePage.NavigationTypeLinkClicked)
@@ -235,6 +234,21 @@ class MainWindow(QMainWindow):
         self.setCentralWidget(main_widget)
         main_layout = QVBoxLayout(main_widget)
 
+        # Dodaj pasek statusu
+        self.statusBar = QLabel()
+        self.statusBar.setStyleSheet(
+            """
+            QLabel {
+                background-color: rgba(0, 0, 0, 0.7);
+                color: #ffffff;
+                padding: 5px;
+                border-top: 1px solid rgba(255, 255, 255, 0.1);
+            }
+        """
+        )
+        self.statusBar.setMinimumHeight(25)
+        main_layout.addWidget(self.statusBar)
+
         controls_widget = QWidget()
         controls_layout = QVBoxLayout(controls_widget)
 
@@ -275,21 +289,6 @@ class MainWindow(QMainWindow):
         """
         )
         controls_layout.addWidget(self.progress_bar)
-
-        # Dodajemy suwak rozmiaru kafelków
-        size_control_layout = QHBoxLayout()
-        self.size_label = QLabel("Rozmiar kafelków: 200px")
-        self.size_slider = QSlider(Qt.Orientation.Horizontal)
-        self.size_slider.setMinimum(100)
-        self.size_slider.setMaximum(400)
-        self.size_slider.setValue(200)
-        self.size_slider.setTickPosition(QSlider.TickPosition.TicksBelow)
-        self.size_slider.setTickInterval(50)
-        self.size_slider.valueChanged.connect(self.update_tile_size)
-        
-        size_control_layout.addWidget(self.size_label)
-        size_control_layout.addWidget(self.size_slider)
-        controls_layout.addLayout(size_control_layout)
 
         action_layout = QHBoxLayout()
 
@@ -406,15 +405,77 @@ class MainWindow(QMainWindow):
         self.web_view.setSizePolicy(
             QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding
         )
-        self.web_view.urlChanged.connect(
-            self.on_webview_url_changed
-        )  # Do debugowania lub aktualizacji stanu
+        self.web_view.urlChanged.connect(self.on_webview_url_changed)
         main_layout.addWidget(self.web_view, 1)
+
+        # Kontrolka rozmiaru kafelków na dole
+        size_control_widget = QWidget()
+        size_control_widget.setStyleSheet(
+            """
+            QWidget {
+                background-color: rgba(255, 255, 255, 0.05);
+                border: 1px solid rgba(255, 255, 255, 0.1);
+                border-radius: 8px;
+                padding: 12px;
+            }
+        """
+        )
+        size_control_layout = QHBoxLayout(size_control_widget)
+
+        self.size_label = QLabel("Rozmiar kafelków: 200px")
+        self.size_label.setStyleSheet(
+            """
+            color: #ffffff;
+            font-weight: 500;
+        """
+        )
+
+        self.size_slider = QSlider(Qt.Orientation.Horizontal)
+        self.size_slider.setMinimum(100)
+        self.size_slider.setMaximum(400)
+        self.size_slider.setValue(200)
+        self.size_slider.setTickPosition(QSlider.TickPosition.TicksBelow)
+        self.size_slider.setTickInterval(50)
+        self.size_slider.valueChanged.connect(self.update_tile_size)
+        self.size_slider.setStyleSheet(
+            """
+            QSlider::groove:horizontal {
+                border: 1px solid #999999;
+                height: 8px;
+                background: #2d2d2d;
+                margin: 2px 0;
+                border-radius: 4px;
+            }
+            QSlider::handle:horizontal {
+                background: #3daee9;
+                border: 1px solid #5c5c5c;
+                width: 18px;
+                margin: -2px 0;
+                border-radius: 9px;
+            }
+            QSlider::handle:horizontal:hover {
+                background: #4db8f0;
+            }
+            QSlider::sub-page:horizontal {
+                background: #3daee9;
+                border-radius: 4px;
+            }
+        """
+        )
+
+        size_control_layout.addWidget(self.size_label)
+        size_control_layout.addWidget(self.size_slider)
+        main_layout.addWidget(size_control_widget)
 
         self.update_status_label()
 
     def on_webview_url_changed(self, url):
         self.log_message(f"WebView URL changed to: {url.toString()}")
+        # Aktualizuj statystyki dla aktualnego folderu
+        local_path = url.toLocalFile()
+        if local_path and os.path.exists(local_path):
+            folder_path = os.path.dirname(local_path)
+            self.update_folder_stats(folder_path)
         # Można by tu zaktualizować current_gallery_root_html jeśli nawigujemy w obrębie tej samej galerii
         # Ale current_gallery_root_html głównie śledzi *główny* index.html wygenerowanej galerii.
         # Jeśli chcemy śledzić aktualnie wyświetlaną stronę, potrzebna osobna zmienna.
@@ -489,7 +550,8 @@ class MainWindow(QMainWindow):
             self.update_folder_stats()
 
     def log_message(self, message):
-        self.stats_content.setText(message)
+        """Wyświetla komunikat na pasku statusu"""
+        self.statusBar.setText(message)
         QApplication.processEvents()
 
     def set_buttons_for_processing(self, processing: bool):
@@ -534,7 +596,9 @@ class MainWindow(QMainWindow):
     def scan_finished(self):
         self.progress_bar.setVisible(False)
         self.set_buttons_for_processing(False)
-        self.update_folder_stats()
+        # Aktualizuj statystyki dla aktualnego folderu
+        if self.current_work_directory:
+            self.update_folder_stats(self.current_work_directory)
         QMessageBox.information(self, "Sukces", "Skanowanie zakończone pomyślnie!")
 
     def rebuild_gallery(self, auto_show_after_build=True):  # Dodano argument
@@ -742,7 +806,7 @@ class MainWindow(QMainWindow):
         self.web_view.page().runJavaScript(js_code)
 
     def update_folder_stats(self, folder_path=None):
-        """Aktualizuje panel statystyk folderu"""
+        """Aktualizuje panel statystyki folderu"""
         if not folder_path:
             folder_path = self.current_work_directory
 
@@ -757,17 +821,28 @@ class MainWindow(QMainWindow):
                 with open(index_json, "r", encoding="utf-8") as f:
                     data = json.load(f)
                     folder_info = data.get("folder_info", {})
-                    stats_text = (
-                        f"Ścieżka: {folder_path}\n"
-                        f"Rozmiar: {folder_info.get('total_size_readable', '0 B')}\n"
-                        f"Pliki: {folder_info.get('file_count', 0)}\n"
-                        f"Foldery: {folder_info.get('subdir_count', 0)}"
-                    )
-                    self.stats_content.setText(stats_text)
-            except Exception:
-                self.stats_content.setText("Błąd odczytu")
+                    if folder_info and isinstance(folder_info, dict):
+                        stats_text = (
+                            f"Rozmiar: {folder_info.get('total_size_readable', '0 B')} | "
+                            f"Pliki: {folder_info.get('file_count', 0)} | "
+                            f"Foldery: {folder_info.get('subdir_count', 0)} | "
+                            f"Archiwa: {folder_info.get('archive_count', 0)}"
+                        )
+                        self.stats_content.setText(stats_text)
+                        self.log_message(f"Wczytano statystyki z: {index_json}")
+                    else:
+                        self.stats_content.setText(
+                            "Naciśnij 'Skanuj Foldery' aby zaktualizować statystyki"
+                        )
+                        self.log_message(f"Brak statystyk w pliku: {index_json}")
+            except Exception as e:
+                self.stats_content.setText(f"Błąd odczytu: {str(e)}")
+                self.log_message(f"Błąd odczytu pliku {index_json}: {str(e)}")
         else:
-            self.stats_content.setText("Nie zeskanowano")
+            self.stats_content.setText(
+                "Naciśnij 'Skanuj Foldery' aby zobaczyć statystyki"
+            )
+            self.log_message(f"Brak pliku index.json w: {folder_path}")
 
 
 if __name__ == "__main__":

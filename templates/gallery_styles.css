@@ -1,15 +1,15 @@
 :root {
-  --bg-primary: #0d1117;
-  --bg-secondary: #161b22;
-  --bg-tertiary: #21262d;
-  --bg-quaternary: #30363d;
-  --text-primary: #f0f6fc;
-  --text-secondary: #8b949e;
-  --accent: #58a6ff;
-  --accent-hover: #79c0ff;
-  --accent-bg: rgba(88, 166, 255, 0.1);
-  --border: #30363d;
-  --border-muted: #21262d;
+  --bg-primary: #1e1e1e;
+  --bg-secondary: #252526;
+  --bg-tertiary: #2d2d2d;
+  --bg-quaternary: #3c3c3c;
+  --text-primary: #ffffff;
+  --text-secondary: #cccccc;
+  --accent: #3daee9;
+  --accent-hover: #4db8f0;
+  --accent-bg: rgba(61, 174, 233, 0.1);
+  --border: #3c3c3c;
+  --border-muted: #2d2d2d;
   --success: #3fb950;
   --warning: #d29922;
   --danger: #f85149;
@@ -29,7 +29,7 @@ body {
     Helvetica, Arial, sans-serif;
   margin: 0;
   padding: 20px;
-  background: linear-gradient(135deg, var(--bg-primary) 0%, #0a0e16 100%);
+  background: linear-gradient(135deg, var(--bg-primary) 0%, #1a1a1a 100%);
   color: var(--text-primary);
   line-height: 1.6;
   min-height: 100vh;
@@ -270,7 +270,7 @@ h3 {
 
 .subfolder-item:hover {
   transform: translateY(-2px);
-  box-shadow: 0 8px 24px rgba(88, 166, 255, 0.15);
+  box-shadow: 0 8px 24px rgba(61, 174, 233, 0.15);
   border-color: var(--accent);
   background: var(--bg-quaternary);
 }

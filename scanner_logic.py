@@ -1,8 +1,51 @@
 # scanner_logic.py
 import json
+import logging
 import os
 import re  # Pozostaje, jeśli będziemy szukać dopasowań nazw obrazów
 import time  # Dodane dla retry mechanism
+from datetime import datetime
+from pathlib import Path
+
+
+# Konfiguracja loggera
+def setup_logger(log_dir="logs"):
+    """Konfiguruje i zwraca logger z zapisem do pliku i konsoli."""
+    # Tworzenie katalogu na logi jeśli nie istnieje
+    log_path = Path(log_dir)
+    log_path.mkdir(exist_ok=True)
+
+    # Nazwa pliku logów z timestampem
+    log_file = log_path / f"scanner_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
+
+    # Konfiguracja loggera
+    logger = logging.getLogger("scanner")
+    logger.setLevel(logging.DEBUG)
+
+    # Format logów
+    formatter = logging.Formatter(
+        "%(asctime)s - %(levelname)s - %(message)s", datefmt="%Y-%m-%d %H:%M:%S"
+    )
+
+    # Handler dla pliku
+    file_handler = logging.FileHandler(log_file, encoding="utf-8")
+    file_handler.setLevel(logging.DEBUG)
+    file_handler.setFormatter(formatter)
+
+    # Handler dla konsoli
+    console_handler = logging.StreamHandler()
+    console_handler.setLevel(logging.INFO)
+    console_handler.setFormatter(formatter)
+
+    # Dodanie handlerów do loggera
+    logger.addHandler(file_handler)
+    logger.addHandler(console_handler)
+
+    return logger
+
+
+# Inicjalizacja loggera
+logger = setup_logger()
 
 # Usunięto ARCHIVE_EXTENSIONS
 IMAGE_EXTENSIONS = (".jpg", ".jpeg", ".png", ".gif", ".bmp", ".webp")
@@ -10,6 +53,7 @@ IMAGE_EXTENSIONS = (".jpg", ".jpeg", ".png", ".gif", ".bmp", ".webp")
 
 def get_file_size_readable(size_bytes):
     """Konwertuje rozmiar pliku w bajtach na czytelny format."""
+    logger.debug(f"Konwersja rozmiaru pliku: {size_bytes} bajtów")
     if size_bytes == 0:
         return "0 B"
     size_name = ("B", "KB", "MB", "GB", "TB", "PB", "EB", "ZB", "YB")
@@ -17,35 +61,49 @@ def get_file_size_readable(size_bytes):
     while size_bytes >= 1024 and i < len(size_name) - 1:
         size_bytes /= 1024.0
         i += 1
-    return f"{size_bytes:.2f} {size_name[i]}"
+    result = f"{size_bytes:.2f} {size_name[i]}"
+    logger.debug(f"Wynik konwersji: {result}")
+    return result
 
 
 def get_folder_stats(folder_path):
-    """Zbiera statystyki dotyczące folderu."""
+    """Zbiera podstawowe statystyki dotyczące folderu."""
+    logger.info(f"Zbieranie statystyk dla folderu: {folder_path}")
     total_size_bytes = 0
     file_count = 0
     subdir_count = 0
+    archive_count = 0
+
     try:
         for entry in os.scandir(folder_path):
-            if (
-                entry.is_file() and entry.name.lower() != "index.json"
-            ):  # Nie liczymy index.json
+            if entry.is_file() and entry.name.lower() != "index.json":
                 try:
-                    total_size_bytes += entry.stat().st_size
+                    stat = entry.stat()
+                    file_size = stat.st_size
                     file_count += 1
-                except OSError:
-                    pass
+                    total_size_bytes += file_size
+                    archive_count += 1
+                    logger.debug(f"Znaleziono plik: {entry.name}")
+                except OSError as e:
+                    logger.error(f"Błąd dostępu do pliku {entry.name}: {e}")
             elif entry.is_dir():
                 subdir_count += 1
-    except OSError:
-        pass
-    return {
+                logger.debug(f"Znaleziono podfolder: {entry.name}")
+    except OSError as e:
+        logger.error(f"Błąd podczas skanowania folderu {folder_path}: {e}")
+
+    # Przygotuj podstawowe statystyki
+    stats = {
         "path": os.path.abspath(folder_path),
         "total_size_bytes": total_size_bytes,
         "total_size_readable": get_file_size_readable(total_size_bytes),
-        "file_count": file_count,  # Liczba plików (bez index.json)
+        "file_count": file_count,
         "subdir_count": subdir_count,
+        "archive_count": archive_count,
+        "scan_date": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
     }
+
+    return stats
 
 
 def find_matching_preview_for_file(base_filename, image_files_in_folder):
@@ -71,6 +129,8 @@ def process_folder(folder_path, progress_callback=None):
     Przetwarza pojedynczy folder: zbiera informacje i generuje index.json.
     Rekursywnie wywołuje się dla podfolderów.
     """
+    logger.info(f"Rozpoczęcie przetwarzania folderu: {folder_path}")
+
     if progress_callback:
         progress_callback(f"Przetwarzanie folderu: {folder_path}")
 
@@ -78,21 +138,27 @@ def process_folder(folder_path, progress_callback=None):
     try:
         # Sprawdź czy folder jest dostępny w rozsądnym czasie
         if not os.path.exists(folder_path):
+            msg = f"Folder nie istnieje: {folder_path}"
+            logger.error(msg)
             if progress_callback:
-                progress_callback(f"Folder nie istnieje: {folder_path}")
+                progress_callback(msg)
             return
 
         if not os.access(folder_path, os.R_OK):
+            msg = f"Brak dostępu do folderu: {folder_path}"
+            logger.error(msg)
             if progress_callback:
-                progress_callback(f"Brak dostępu do folderu: {folder_path}")
+                progress_callback(msg)
             return
     except Exception as e:
+        msg = f"Błąd dostępu do folderu {folder_path}: {e}"
+        logger.error(msg)
         if progress_callback:
-            progress_callback(f"Błąd dostępu do folderu {folder_path}: {e}")
+            progress_callback(msg)
         return
 
     index_data = {
-        "folder_info": get_folder_stats(folder_path),
+        "folder_info": None,  # Będzie zaktualizowane na końcu
         "files_with_previews": [],
         "files_without_previews": [],
         "other_images": [],  # Obrazy, które nie są podglądami niczego
@@ -212,50 +278,63 @@ def process_folder(folder_path, progress_callback=None):
                 }
             )
 
+    # Aktualizuj statystyki folderu na końcu
+    index_data["folder_info"] = get_folder_stats(folder_path)
+
     # Zapisz index.json
     index_json_path = os.path.join(folder_path, "index.json")
     try:
         with open(index_json_path, "w", encoding="utf-8") as f:
             json.dump(index_data, f, indent=4, ensure_ascii=False)
+        logger.info(f"Zapisano plik index.json: {index_json_path}")
         if progress_callback:
             progress_callback(f"Zapisano: {index_json_path}")
     except IOError as e:
+        msg = f"Błąd zapisu {index_json_path}: {e}"
+        logger.error(msg)
         if progress_callback:
-            progress_callback(f"Błąd zapisu {index_json_path}: {e}")
+            progress_callback(msg)
 
     # Przetwarzaj podfoldery
     for subdir in subdirectories:
+        logger.info(f"Przetwarzanie podfolderu: {subdir}")
         process_folder(subdir, progress_callback)
 
 
 def process_folder_with_retry(folder_path, max_retries=3, progress_callback=None):
     """Przetwarza folder z mechanizmem ponownych prób w przypadku błędów dostępu."""
+    logger.info(f"Rozpoczęcie przetwarzania folderu z mechanizmem retry: {folder_path}")
+
     for attempt in range(max_retries):
         try:
             return process_folder(folder_path, progress_callback)
-        except PermissionError:
+        except PermissionError as e:
+            logger.warning(f"Próba {attempt + 1}/{max_retries} nie powiodła się: {e}")
             if attempt == max_retries - 1:
+                msg = f"Nie udało się uzyskać dostępu do folderu {folder_path} po {max_retries} próbach"
+                logger.error(msg)
                 if progress_callback:
-                    progress_callback(
-                        f"Nie udało się uzyskać dostępu do folderu {folder_path} po {max_retries} próbach"
-                    )
+                    progress_callback(msg)
                 raise
             if progress_callback:
                 progress_callback(
                     f"Próba {attempt + 1}/{max_retries} nie powiodła się, ponawiam..."
                 )
-            time.sleep(0.5)  # Krótka pauza przed retry
+            time.sleep(0.5)
 
 
 def start_scanning(root_folder_path, progress_callback=None):
     """Rozpoczyna skanowanie od podanego folderu głównego."""
+    logger.info(f"Rozpoczęcie skanowania od folderu: {root_folder_path}")
+
     if not os.path.isdir(root_folder_path):
+        msg = f"Błąd: Ścieżka {root_folder_path} nie jest folderem lub nie istnieje."
+        logger.error(msg)
         if progress_callback:
-            progress_callback(
-                f"Błąd: Ścieżka {root_folder_path} nie jest folderem lub nie istnieje."
-            )
+            progress_callback(msg)
         return
     process_folder_with_retry(root_folder_path, progress_callback=progress_callback)
+    logger.info("Skanowanie zakończone pomyślnie")
     if progress_callback:
         progress_callback("Skanowanie zakończone.")
 
