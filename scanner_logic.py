@@ -131,7 +131,9 @@ def find_matching_preview_for_file(base_filename, image_files_in_folder):
     Dopasowuje na podstawie identycznej nazwy bazowej (bez rozszerzenia),
     ignorując wielkość liter i obsługując wszystkie warianty rozszerzeń.
     """
-    base_name = os.path.splitext(base_filename)[0].lower().strip()
+    # UWAGA: base_filename już jest nazwą bazową bez rozszerzenia!
+    # Nie rób ponownie os.path.splitext()
+    base_name = base_filename.lower().strip()
 
     # Lista możliwych wzorców dla nazwy bazowej
     possible_patterns = [

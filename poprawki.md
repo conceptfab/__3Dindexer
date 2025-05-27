@@ -1,13 +1,14 @@
-Zmiany w pliku scanner_logic.py
+🔧 Poprawka w pliku scanner_logic.py
 Zmiana w funkcji find_matching_preview_for_file
-Problem: Funkcja nie uwzględnia wszystkich możliwych wariantów nazw plików i rozszerzeń.
 pythondef find_matching_preview_for_file(base_filename, image_files_in_folder):
     """
     Szuka pasującego pliku podglądu dla dowolnego pliku.
     Dopasowuje na podstawie identycznej nazwy bazowej (bez rozszerzenia),
     ignorując wielkość liter i obsługując wszystkie warianty rozszerzeń.
     """
-    base_name = os.path.splitext(base_filename)[0].lower().strip()
+    # UWAGA: base_filename już jest nazwą bazową bez rozszerzenia!
+    # Nie rób ponownie os.path.splitext()
+    base_name = base_filename.lower().strip()
     
     # Lista możliwych wzorców dla nazwy bazowej
     possible_patterns = [
@@ -24,7 +25,9 @@ pythondef find_matching_preview_for_file(base_filename, image_files_in_folder):
             if pattern not in possible_patterns:
                 possible_patterns.append(pattern)
     
-    logger.debug(f"Szukam podglądu dla '{base_filename}' z wzorcami: {possible_patterns}")
+    logger.debug(
+        f"Szukam podglądu dla '{base_filename}' z wzorcami: {possible_patterns}"
+    )
     
     for img_path in image_files_in_folder:
         img_name = os.path.basename(img_path)
@@ -39,82 +42,42 @@ pythondef find_matching_preview_for_file(base_filename, image_files_in_folder):
         # Sprawdź wszystkie możliwe wzorce
         for pattern in possible_patterns:
             if img_base_clean == pattern:
-                logger.debug(f"✅ Dopasowano podgląd: '{img_name}' dla '{base_filename}' (wzorzec: '{pattern}')")
+                logger.debug(
+                    f"✅ Dopasowano podgląd: '{img_name}' dla '{base_filename}' (wzorzec: '{pattern}')"
+                )
                 return img_path
     
     logger.debug(f"❌ Nie znaleziono podglądu dla: '{base_filename}'")
     return None
-Zmiana w stałej IMAGE_EXTENSIONS
-Problem: Brak obsługi niektórych formatów obrazów i niejednoznaczności z JPEG.
-python# Rozszerzona lista rozszerzeń obrazów z obsługą różnych wariantów
-IMAGE_EXTENSIONS = (
-    ".jpg", ".jpeg", ".jpe", ".jfif",  # JPEG i warianty
-    ".png", ".apng",  # PNG i animowane PNG
-    ".gif",  # GIF
-    ".bmp", ".dib",  # Bitmap
-    ".webp",  # WebP
-    ".tiff", ".tif",  # TIFF
-    ".svg", ".svgz",  # SVG
-    ".ico",  # Ikony
-    ".avif",  # AVIF (nowoczesny format)
-    ".heic", ".heif",  # HEIC/HEIF (Apple)
-)
-Dodatkowa funkcja pomocnicza dla lepszego logowania
-pythondef log_file_matching_debug(folder_path, progress_callback=None):
-    """
-    Funkcja debugowa do sprawdzenia dopasowywania plików.
-    Użyj jej do diagnozowania problemów z dopasowywaniem.
-    """
-    logger.info(f"🔍 DEBUG: Analiza dopasowywania plików w: {folder_path}")
-    
+Zmiana w funkcji process_folder - gdzie wywołujemy funkcję
+Problem był też w tym, że przekazywaliśmy file_basename (który już jest bez rozszerzenia), ale funkcja robiła ponownie splitext(). Sprawdź tę część w funkcji process_folder:
+pythonfor file_name in other_filenames:
+    file_path = os.path.join(folder_path, file_name)
+    file_basename, _ = os.path.splitext(file_name)  # To już jest nazwa bez rozszerzenia
+
     try:
-        all_files = []
-        with os.scandir(folder_path) as entries:
-            for entry in entries:
-                if entry.is_file():
-                    all_files.append(entry.name)
-        
-        # Podziel pliki
-        image_files = [f for f in all_files if any(f.lower().endswith(ext) for ext in IMAGE_EXTENSIONS)]
-        other_files = [f for f in all_files if f not in image_files and f.lower() != "index.json"]
-        
-        logger.info(f"📁 Pliki obrazów ({len(image_files)}): {image_files}")
-        logger.info(f"📄 Inne pliki ({len(other_files)}): {other_files}")
-        
-        # Sprawdź dopasowania
-        matches_found = 0
-        for other_file in other_files:
-            base_name = os.path.splitext(other_file)[0]
-            full_image_paths = [os.path.join(folder_path, img) for img in image_files]
-            match = find_matching_preview_for_file(base_name, full_image_paths)
-            
-            if match:
-                matches_found += 1
-                logger.info(f"✅ DOPASOWANIE: '{other_file}' ↔ '{os.path.basename(match)}'")
-                if progress_callback:
-                    progress_callback(f"Dopasowano: {other_file} ↔ {os.path.basename(match)}")
-            else:
-                logger.info(f"❌ BRAK: '{other_file}' (szukano dla '{base_name}')")
-                if progress_callback:
-                    progress_callback(f"Brak podglądu dla: {other_file}")
-        
-        logger.info(f"📊 PODSUMOWANIE: {matches_found}/{len(other_files)} plików ma podgląd")
-        
-    except Exception as e:
-        logger.error(f"Błąd podczas debugowania: {e}")
-Zmiana w funkcji process_folder - dodanie debugowania
-Dodaj wywołanie funkcji debugowej przed główną logiką:
-pythondef process_folder(folder_path, progress_callback=None):
-    """
-    Przetwarza pojedynczy folder: zbiera informacje i generuje index.json.
-    Rekursywnie wywołuje się dla podfolderów.
-    """
-    logger.info(f"Rozpoczęcie przetwarzania folderu: {folder_path}")
+        file_size_bytes = os.path.getsize(file_path)
+    except OSError:
+        file_size_bytes = 0
 
-    if progress_callback:
-        progress_callback(f"Przetwarzanie folderu: {folder_path}")
+    file_info = {
+        "name": file_name,
+        "path_absolute": os.path.abspath(file_path),
+        "size_bytes": file_size_bytes,
+        "size_readable": get_file_size_readable(file_size_bytes),
+    }
 
-    # DODAJ DEBUG MATCHING (opcjonalnie, tylko dla problemów)
-    # log_file_matching_debug(folder_path, progress_callback)
+    # TUTAJ PRZEKAZUJEMY file_basename (już bez rozszerzenia!)
+    preview_file_path = find_matching_preview_for_file(
+        file_basename, full_path_image_files  # file_basename to np. "dokument" dla "dokument.pdf"
+    )
 
-    # ... reszta funkcji pozostaje bez zmian ...
+    if preview_file_path:
+        file_info["preview_found"] = True
+        file_info["preview_name"] = os.path.basename(preview_file_path)
+        file_info["preview_path_absolute"] = os.path.abspath(preview_file_path)
+        index_data["files_with_previews"].append(file_info)
+        found_previews_paths.add(preview_file_path)
+    else:
+        file_info["preview_found"] = False
+        index_data["files_without_previews"].append(file_info)
