@@ -4,10 +4,11 @@ import os
 import webbrowser # Pozostaje dla ewentualnego otwierania plików archiwów
 import shutil 
 import re 
+import json
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QPushButton, QLabel, QFileDialog, QTextEdit, QMessageBox, QProgressDialog,
-    QSizePolicy # Dodane
+    QSizePolicy, QSlider # Dodane
 )
 from PyQt6.QtCore import Qt, QThread, pyqtSignal, QUrl # Dodane QUrl
 from PyQt6.QtWebEngineWidgets import QWebEngineView # Dodane
@@ -174,67 +175,112 @@ class MainWindow(QMainWindow):
     def init_ui(self):
         main_widget = QWidget(self)
         self.setCentralWidget(main_widget)
-        # Główny layout, dzielony na górny panel kontrolny i dolny obszar zawartości
         main_layout = QVBoxLayout(main_widget)
 
-        # Górny panel kontrolny
+        # Górny panel kontrolny - wszystkie przyciski w jednym rzędzie
         controls_widget = QWidget()
         controls_layout = QVBoxLayout(controls_widget)
-        controls_widget.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum) # Aby nie rozciągał się za bardzo w pionie
-
+        
         # Sekcja wyboru folderu
         folder_layout = QHBoxLayout()
         self.folder_label = QLabel("Folder roboczy: Brak")
-        folder_layout.addWidget(self.folder_label, 1) # Rozciągliwy
+        folder_layout.addWidget(self.folder_label, 1)
         
-        self.select_folder_button = QPushButton("Wybierz Folder Roboczy")
-        self.select_folder_button.clicked.connect(self.select_work_directory)
+        self.select_folder_button = QPushButton("📁 Wybierz Folder")
+        self.select_folder_button.setStyleSheet("QPushButton { background-color: #4CAF50; color: white; font-weight: bold; }")
         folder_layout.addWidget(self.select_folder_button)
         controls_layout.addLayout(folder_layout)
 
-        # Przyciski akcji
-        action_layout_1 = QHBoxLayout()
-        self.start_scan_button = QPushButton("Skanuj Foldery (index.json)")
+        # Wszystkie przyciski akcji w jednym rzędzie
+        action_layout = QHBoxLayout()
+        
+        self.start_scan_button = QPushButton("🔍 Skanuj Foldery")
+        self.start_scan_button.setStyleSheet("QPushButton { background-color: #2196F3; color: white; }")
         self.start_scan_button.clicked.connect(self.start_scan)
-        action_layout_1.addWidget(self.start_scan_button)
+        action_layout.addWidget(self.start_scan_button)
         
-        self.rebuild_gallery_button = QPushButton("Przebuduj/Odśwież Galerię HTML")
+        self.rebuild_gallery_button = QPushButton("🔄 Przebuduj Galerię")
+        self.rebuild_gallery_button.setStyleSheet("QPushButton { background-color: #FF9800; color: white; }")
         self.rebuild_gallery_button.clicked.connect(self.rebuild_gallery)
-        action_layout_1.addWidget(self.rebuild_gallery_button)
-        controls_layout.addLayout(action_layout_1)
-        
-        action_layout_2 = QHBoxLayout()
-        self.open_gallery_button = QPushButton("Pokaż Galerię w Aplikacji") # Zmieniona nazwa
-        self.open_gallery_button.clicked.connect(self.show_gallery_in_app) # Zmieniona metoda
-        action_layout_2.addWidget(self.open_gallery_button)
+        action_layout.addWidget(self.rebuild_gallery_button)
 
-        self.clear_gallery_cache_button = QPushButton("Wyczyść Cache Galerii dla tego folderu")
+        self.open_gallery_button = QPushButton("👁️ Pokaż Galerię")
+        self.open_gallery_button.setStyleSheet("QPushButton { background-color: #9C27B0; color: white; }")
+        self.open_gallery_button.clicked.connect(self.show_gallery_in_app)
+        action_layout.addWidget(self.open_gallery_button)
+
+        self.clear_gallery_cache_button = QPushButton("🗑️ Wyczyść Cache")
+        self.clear_gallery_cache_button.setStyleSheet("QPushButton { background-color: #F44336; color: white; }")
         self.clear_gallery_cache_button.clicked.connect(self.clear_current_gallery_cache)
-        action_layout_2.addWidget(self.clear_gallery_cache_button)
-        controls_layout.addLayout(action_layout_2)
+        action_layout.addWidget(self.clear_gallery_cache_button)
 
-        self.cancel_button = QPushButton("Anuluj Bieżącą Operację")
+        self.cancel_button = QPushButton("❌ Anuluj")
+        self.cancel_button.setStyleSheet("QPushButton { background-color: #607D8B; color: white; }")
         self.cancel_button.clicked.connect(self.cancel_operations)
-        self.cancel_button.setEnabled(False) 
-        controls_layout.addWidget(self.cancel_button)
+        self.cancel_button.setEnabled(False)
+        action_layout.addWidget(self.cancel_button)
         
-        main_layout.addWidget(controls_widget) # Dodanie panelu kontrolnego do głównego layoutu
+        # Suwak rozmiaru kafelków - wspólny dla całego projektu
+        size_layout = QHBoxLayout()
+        size_layout.addWidget(QLabel("Rozmiar kafelków:"))
+        self.size_slider = QSlider(Qt.Orientation.Horizontal)
+        self.size_slider.setMinimum(150)
+        self.size_slider.setMaximum(350)
+        self.size_slider.setValue(200)
+        self.size_slider.valueChanged.connect(self.update_tile_size)
+        size_layout.addWidget(self.size_slider)
+        
+        self.size_label = QLabel("200px")
+        size_layout.addWidget(self.size_label)
+        action_layout.addLayout(size_layout)
+        
+        controls_layout.addLayout(action_layout)
+        main_layout.addWidget(controls_widget)
 
-        # Dolny obszar: Logi i Widok Galerii (np. w zakładkach lub jeden pod drugim)
-        # Na razie zrobimy QWebEngineView głównym elementem, logi mniejsze
-        
+        # Środkowy obszar: WebView
         self.web_view = QWebEngineView()
-        self.web_view.setPage(CustomWebEnginePage(self.web_view)) # Ustawienie niestandardowej strony
+        self.web_view.setPage(CustomWebEnginePage(self.web_view))
         self.web_view.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self.web_view.urlChanged.connect(self.on_webview_url_changed) # Do debugowania lub aktualizacji stanu
-        main_layout.addWidget(self.web_view, 1) # Drugi argument to stretch factor
+        main_layout.addWidget(self.web_view, 1)
 
+        # Dolny obszar: Logi i Statystyki obok siebie
+        bottom_layout = QHBoxLayout()
+        
+        # Logi - lewa połowa
         self.log_output = QTextEdit()
         self.log_output.setReadOnly(True)
-        self.log_output.setMaximumHeight(150) # Ograniczenie wysokości logów
-        self.log_output.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Maximum)
-        main_layout.addWidget(self.log_output)
+        self.log_output.setMaximumHeight(150)
+        bottom_layout.addWidget(self.log_output, 1)
         
+        # Panel statystyk - prawa połowa
+        self.stats_panel = QWidget()
+        self.stats_panel.setMaximumHeight(150)
+        self.stats_panel.setStyleSheet("QWidget { background-color: #f0f0f0; border: 1px solid #ccc; }")
+        stats_layout = QVBoxLayout(self.stats_panel)
+        
+        self.stats_title = QLabel("📊 Statystyki aktualnego folderu")
+        self.stats_title.setStyleSheet("font-weight: bold; font-size: 14px;")
+        stats_layout.addWidget(self.stats_title)
+        
+        self.stats_path = QLabel("Ścieżka: -")
+        self.stats_size = QLabel("Rozmiar: -")
+        self.stats_files = QLabel("Pliki: -")
+        self.stats_folders = QLabel("Foldery: -")
+        
+        stats_layout.addWidget(self.stats_path)
+        stats_layout.addWidget(self.stats_size)
+        stats_layout.addWidget(self.stats_files)
+        stats_layout.addWidget(self.stats_folders)
+        stats_layout.addStretch()
+        
+        bottom_layout.addWidget(self.stats_panel, 1)
+        
+        bottom_widget = QWidget()
+        bottom_widget.setLayout(bottom_layout)
+        bottom_widget.setMaximumHeight(150)
+        main_layout.addWidget(bottom_widget)
+
         self.update_status_label() 
 
     def on_webview_url_changed(self, url):
@@ -296,6 +342,7 @@ class MainWindow(QMainWindow):
             else:
                 # Jeśli galeria nie istnieje, automatycznie ją zbuduj
                 self.rebuild_gallery(auto_show_after_build=True)
+            self.update_folder_stats()
 
 
     def log_message(self, message):
@@ -469,6 +516,55 @@ class MainWindow(QMainWindow):
                 event.ignore()
         else:
             event.accept()
+
+    def update_tile_size(self):
+        """Aktualizuje rozmiar kafelków w galerii poprzez JavaScript"""
+        size = self.size_slider.value()
+        self.size_label.setText(f"{size}px")
+        
+        # Wyślij JavaScript do WebView aby zaktualizować CSS
+        js_code = f"""
+        var galleries = document.querySelectorAll('.gallery');
+        galleries.forEach(function(gallery) {{
+            gallery.style.gridTemplateColumns = 'repeat(auto-fill, minmax({size}px, 1fr))';
+        }});
+        """
+        self.web_view.page().runJavaScript(js_code)
+
+    def update_folder_stats(self, folder_path=None):
+        """Aktualizuje panel statystyk folderu"""
+        if not folder_path:
+            folder_path = self.current_work_directory
+        
+        if not folder_path or not os.path.exists(folder_path):
+            self.stats_path.setText("Ścieżka: -")
+            self.stats_size.setText("Rozmiar: -")
+            self.stats_files.setText("Pliki: -")
+            self.stats_folders.setText("Foldery: -")
+            return
+        
+        # Wczytaj statystyki z index.json jeśli istnieje
+        index_json = os.path.join(folder_path, "index.json")
+        if os.path.exists(index_json):
+            try:
+                with open(index_json, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                    folder_info = data.get("folder_info", {})
+                    
+                    self.stats_path.setText(f"Ścieżka: {folder_path}")
+                    self.stats_size.setText(f"Rozmiar: {folder_info.get('total_size_readable', '0 B')}")
+                    self.stats_files.setText(f"Pliki: {folder_info.get('file_count', 0)}")
+                    self.stats_folders.setText(f"Foldery: {folder_info.get('subdir_count', 0)}")
+            except:
+                self.stats_path.setText(f"Ścieżka: {folder_path}")
+                self.stats_size.setText("Rozmiar: Błąd odczytu")
+                self.stats_files.setText("Pliki: -")
+                self.stats_folders.setText("Foldery: -")
+        else:
+            self.stats_path.setText(f"Ścieżka: {folder_path}")
+            self.stats_size.setText("Rozmiar: Nie zeskanowano")
+            self.stats_files.setText("Pliki: -")
+            self.stats_folders.setText("Foldery: -")
 
 if __name__ == '__main__':
     # Konfiguracja dla QtWebEngine, jeśli potrzebna (np. debug port)

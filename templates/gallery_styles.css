@@ -260,6 +260,10 @@ h3 {
   text-align: center;
   transition: var(--transition);
   cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
 }
 
 .subfolder-item:hover {
@@ -269,16 +273,35 @@ h3 {
   background: var(--bg-quaternary);
 }
 
+.folder-icon {
+  font-size: 2rem;
+  margin-bottom: 8px;
+}
+
 .subfolder-item a {
   color: var(--text-primary);
   text-decoration: none;
   font-weight: 500;
-  display: block;
   font-size: 0.95rem;
+  margin-bottom: 8px;
 }
 
 .subfolder-item:hover a {
   color: var(--accent);
+}
+
+.folder-stats {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+}
+
+.folder-stats span {
+  background: var(--bg-primary);
+  padding: 2px 6px;
+  border-radius: 4px;
 }
 
 .no-preview-list {
@@ -312,27 +335,6 @@ h3 {
 
 .no-preview-list a:hover {
   color: var(--accent);
-}
-
-.folder-stats {
-  background: linear-gradient(
-    135deg,
-    var(--bg-tertiary) 0%,
-    var(--bg-quaternary) 100%
-  );
-  padding: 20px;
-  border-radius: var(--radius);
-  border: 1px solid var(--border);
-}
-
-.folder-stats h3 {
-  margin-top: 0;
-  color: var(--accent);
-}
-
-.folder-stats p {
-  margin: 8px 0;
-  color: var(--text-primary);
 }
 
 a {

@@ -33,7 +33,13 @@
         <div class="subfolders-grid">
           {% for sf in subfolders %}
           <div class="subfolder-item">
+            <div class="folder-icon">📁</div>
             <a href="{{ sf.link }}">{{ sf.name }}</a>
+            <div class="folder-stats">
+              <span>{{ sf.total_size_readable }}</span>
+              <span>{{ sf.file_count }} plików</span>
+              <span>{{ sf.subdir_count }} folderów</span>
+            </div>
           </div>
           {% endfor %}
         </div>

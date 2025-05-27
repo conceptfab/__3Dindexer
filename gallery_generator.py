@@ -84,39 +84,11 @@ def process_single_index_json(index_json_path, scanned_root_path, gallery_output
     # Caching: Check if HTML needs regeneration
     if os.path.exists(output_html_file) and os.path.exists(index_json_path) and \
        os.path.getmtime(output_html_file) >= os.path.getmtime(index_json_path):
-        # Check if all previews are also up-to-date or exist
-        previews_ok = True
-        # Files with previews
-        for item in data.get("files_with_previews", []):
-            if item.get("preview_path_absolute"):
-                preview_basename = os.path.basename(item["preview_path_absolute"])
-                dest_preview_path = os.path.join(current_gallery_html_dir, "_previews", preview_basename)
-                if not os.path.exists(dest_preview_path) or \
-                   (os.path.exists(item["preview_path_absolute"]) and os.path.getmtime(item["preview_path_absolute"]) > os.path.getmtime(dest_preview_path)):
-                    previews_ok = False
-                    break
-        if previews_ok:
-             # Other images
-            for item in data.get("other_images", []):
-                if item.get("path_absolute"):
-                    img_basename = os.path.basename(item["path_absolute"])
-                    dest_img_path = os.path.join(current_gallery_html_dir, "_previews", img_basename)
-                    if not os.path.exists(dest_img_path) or \
-                       (os.path.exists(item["path_absolute"]) and os.path.getmtime(item["path_absolute"]) > os.path.getmtime(dest_img_path)):
-                        previews_ok = False
-                        break
-        
-        if previews_ok:
-            if progress_callback:
-                progress_callback(f"Galeria {output_html_file} jest aktualna, pomijam.")
-            # Still need to discover subfolders for recursive calls, but not regenerate this one.
-            # The main generation loop will handle recursion.
-            return output_html_file 
-
+        if progress_callback:
+            progress_callback(f"Galeria {output_html_file} jest aktualna, pomijam.")
+        return output_html_file
 
     template = template_env.get_template("gallery_template.html")
-    previews_dir_in_gallery = os.path.join(current_gallery_html_dir, "_previews")
-    os.makedirs(previews_dir_in_gallery, exist_ok=True)
 
     template_data = {
         "folder_info": data.get("folder_info", {}),
@@ -132,28 +104,37 @@ def process_single_index_json(index_json_path, scanned_root_path, gallery_output
     gallery_root_name = os.path.basename(scanned_root_path)
     template_data["breadcrumb_parts"], template_data["depth"] = generate_breadcrumb(relative_path_from_scanned_root, gallery_root_name)
 
-
-    # Subfolders
+    # Subfolders - dodaj statystyki
     for entry in os.scandir(current_folder_abs_path):
         if entry.is_dir():
-            # Check if subfolder has an index.json, meaning it's part of the scan
             if os.path.exists(os.path.join(entry.path, "index.json")):
-                template_data["subfolders"].append({
-                    "name": entry.name,
-                    "link": f"{entry.name}/index.html"
-                })
+                # Wczytaj statystyki z index.json podfolderu
+                try:
+                    with open(os.path.join(entry.path, "index.json"), "r", encoding="utf-8") as f:
+                        subfolder_data = json.load(f)
+                        folder_info = subfolder_data.get("folder_info", {})
+                        template_data["subfolders"].append({
+                            "name": entry.name,
+                            "link": f"{entry.name}/index.html",
+                            "total_size_readable": folder_info.get("total_size_readable", "0 B"),
+                            "file_count": folder_info.get("file_count", 0),
+                            "subdir_count": folder_info.get("subdir_count", 0)
+                        })
+                except:
+                    template_data["subfolders"].append({
+                        "name": entry.name,
+                        "link": f"{entry.name}/index.html",
+                        "total_size_readable": "0 B",
+                        "file_count": 0,
+                        "subdir_count": 0
+                    })
     
-    # Files with previews
+    # Files with previews - używaj bezpośrednich ścieżek
     for item in data.get("files_with_previews", []):
         copied_item = item.copy()
         copied_item["archive_link"] = f"file:///{item['path_absolute']}"
         if item.get("preview_path_absolute"):
-            preview_basename = os.path.basename(item["preview_path_absolute"])
-            dest_preview_path = os.path.join(previews_dir_in_gallery, preview_basename)
-            if copy_preview_if_newer(item["preview_path_absolute"], dest_preview_path):
-                 copied_item["preview_relative_path"] = f"_previews/{preview_basename}"
-            else: # Preview failed to copy or source missing
-                copied_item["preview_relative_path"] = None # Or a placeholder image
+            copied_item["preview_relative_path"] = f"file:///{item['preview_path_absolute']}"
         template_data["files_with_previews"].append(copied_item)
 
     # Files without previews
@@ -162,17 +143,12 @@ def process_single_index_json(index_json_path, scanned_root_path, gallery_output
         copied_item["archive_link"] = f"file:///{item['path_absolute']}"
         template_data["files_without_previews"].append(copied_item)
 
-    # Other images
+    # Other images - używaj bezpośrednich ścieżek
     for item in data.get("other_images", []):
         copied_item = item.copy()
         copied_item["file_link"] = f"file:///{item['path_absolute']}"
-        if item.get("path_absolute"): # This is the image itself
-            img_basename = os.path.basename(item["path_absolute"])
-            dest_img_path = os.path.join(previews_dir_in_gallery, img_basename)
-            if copy_preview_if_newer(item["path_absolute"], dest_img_path):
-                copied_item["image_relative_path"] = f"_previews/{img_basename}"
-            else:
-                copied_item["image_relative_path"] = None
+        if item.get("path_absolute"):
+            copied_item["image_relative_path"] = f"file:///{item['path_absolute']}"
         template_data["other_images"].append(copied_item)
     
     try:

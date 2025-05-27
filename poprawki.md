@@ -1,596 +1,398 @@
-Zmiany w pliku main.py
-W funkcji __init__ klasy MainWindow:
-pythondef __init__(self):
-    super().__init__()
-    self.setWindowTitle("Skaner Folderów i Kreator Galerii")
-    self.setGeometry(100, 100, 1400, 900)  # Zwiększony rozmiar startowy
-    self.setMinimumSize(1200, 800)  # Minimalna wielkość okna
-W funkcji select_work_directory:
-pythondef select_work_directory(self):
-    initial_dir = self.current_work_directory if self.current_work_directory else os.path.expanduser("~")
-    folder = QFileDialog.getExistingDirectory(self, "Wybierz folder roboczy", initial_dir)
-    if folder:
-        self.current_work_directory = folder
-        if config_manager.set_work_directory(folder):
-            self.log_message(f"Ustawiono folder roboczy: {folder}")
-        else:
-            self.log_message(f"Błąd zapisu konfiguracji dla folderu: {folder}")
-        self.update_status_label()
-        self.current_gallery_root_html = self.get_current_gallery_index_html()
-        self.update_gallery_buttons_state()
+Zmiany w pliku gallery_generator.py
+Funkcja process_single_index_json - zmiany w cachowaniu:
+pythondef process_single_index_json(index_json_path, scanned_root_path, gallery_output_base_path, template_env, progress_callback=None):
+    if progress_callback:
+        progress_callback(f"Generowanie galerii dla: {index_json_path}")
+
+    try:
+        with open(index_json_path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+    except Exception as e:
+        if progress_callback:
+            progress_callback(f"Błąd odczytu {index_json_path}: {e}")
+        return None
+
+    current_folder_abs_path = os.path.dirname(index_json_path)
+    relative_path_from_scanned_root = os.path.relpath(current_folder_abs_path, scanned_root_path)
+
+    current_gallery_html_dir = os.path.join(gallery_output_base_path, relative_path_from_scanned_root if relative_path_from_scanned_root != "." else "")
+    os.makedirs(current_gallery_html_dir, exist_ok=True)
+    
+    output_html_file = os.path.join(current_gallery_html_dir, "index.html")
+
+    # Caching: Check if HTML needs regeneration
+    if os.path.exists(output_html_file) and os.path.exists(index_json_path) and \
+       os.path.getmtime(output_html_file) >= os.path.getmtime(index_json_path):
+        if progress_callback:
+            progress_callback(f"Galeria {output_html_file} jest aktualna, pomijam.")
+        return output_html_file
+
+    template = template_env.get_template("gallery_template.html")
+
+    template_data = {
+        "folder_info": data.get("folder_info", {}),
+        "files_with_previews": [],
+        "files_without_previews": [],
+        "other_images": [],
+        "subfolders": [],
+        "current_folder_display_name": os.path.basename(current_folder_abs_path) if relative_path_from_scanned_root != "." else os.path.basename(scanned_root_path),
+        "breadcrumb_parts": [],
+        "depth": 0,
+    }
+
+    gallery_root_name = os.path.basename(scanned_root_path)
+    template_data["breadcrumb_parts"], template_data["depth"] = generate_breadcrumb(relative_path_from_scanned_root, gallery_root_name)
+
+    # Subfolders - dodaj statystyki
+    for entry in os.scandir(current_folder_abs_path):
+        if entry.is_dir():
+            if os.path.exists(os.path.join(entry.path, "index.json")):
+                # Wczytaj statystyki z index.json podfolderu
+                try:
+                    with open(os.path.join(entry.path, "index.json"), "r", encoding="utf-8") as f:
+                        subfolder_data = json.load(f)
+                        folder_info = subfolder_data.get("folder_info", {})
+                        template_data["subfolders"].append({
+                            "name": entry.name,
+                            "link": f"{entry.name}/index.html",
+                            "total_size_readable": folder_info.get("total_size_readable", "0 B"),
+                            "file_count": folder_info.get("file_count", 0),
+                            "subdir_count": folder_info.get("subdir_count", 0)
+                        })
+                except:
+                    template_data["subfolders"].append({
+                        "name": entry.name,
+                        "link": f"{entry.name}/index.html",
+                        "total_size_readable": "0 B",
+                        "file_count": 0,
+                        "subdir_count": 0
+                    })
+    
+    # Files with previews - używaj bezpośrednich ścieżek
+    for item in data.get("files_with_previews", []):
+        copied_item = item.copy()
+        copied_item["archive_link"] = f"file:///{item['path_absolute']}"
+        if item.get("preview_path_absolute"):
+            copied_item["preview_relative_path"] = f"file:///{item['preview_path_absolute']}"
+        template_data["files_with_previews"].append(copied_item)
+
+    # Files without previews
+    for item in data.get("files_without_previews", []):
+        copied_item = item.copy()
+        copied_item["archive_link"] = f"file:///{item['path_absolute']}"
+        template_data["files_without_previews"].append(copied_item)
+
+    # Other images - używaj bezpośrednich ścieżek
+    for item in data.get("other_images", []):
+        copied_item = item.copy()
+        copied_item["file_link"] = f"file:///{item['path_absolute']}"
+        if item.get("path_absolute"):
+            copied_item["image_relative_path"] = f"file:///{item['path_absolute']}"
+        template_data["other_images"].append(copied_item)
+    
+    try:
+        html_content = template.render(template_data)
+        with open(output_html_file, "w", encoding="utf-8") as f:
+            f.write(html_content)
+        if progress_callback:
+            progress_callback(f"Zapisano galerię: {output_html_file}")
+    except Exception as e:
+        if progress_callback:
+            progress_callback(f"Błąd generowania HTML dla {index_json_path}: {e}")
+        return None
         
-        # AUTOMATYCZNE OTWIERANIE GALERII PO WYBORZE FOLDERU
-        if self.current_gallery_root_html and os.path.exists(self.current_gallery_root_html):
-            self.show_gallery_in_app()
-        else:
-            # Jeśli galeria nie istnieje, automatycznie ją zbuduj
-            self.rebuild_gallery(auto_show_after_build=True)
-Nowy plik templates/gallery_styles.css
-css:root {
-    --bg-primary: #0d1117;
-    --bg-secondary: #161b22;  
-    --bg-tertiary: #21262d;
-    --bg-quaternary: #30363d;
-    --text-primary: #f0f6fc;
-    --text-secondary: #8b949e;
-    --accent: #58a6ff;
-    --accent-hover: #79c0ff;
-    --accent-bg: rgba(88, 166, 255, 0.1);
-    --border: #30363d;
-    --border-muted: #21262d;
-    --success: #3fb950;
-    --warning: #d29922;
-    --danger: #f85149;
-    --shadow: 0 8px 32px rgba(0, 0, 0, 0.6);
-    --shadow-hover: 0 16px 48px rgba(0, 0, 0, 0.8);
-    --radius: 12px;
-    --radius-sm: 8px;
-    --transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-}
+    return output_html_file
+Usunięcie funkcji kopiowania podglądów:
+python# Usuwamy te funkcje - nie są już potrzebne:
+# def copy_preview_if_newer(src_path, dest_path_in_gallery_previews_dir)
+# oraz wszystkie związane z kopiowaniem podglądów
+Zmiany w pliku templates/gallery_template.html
+Uproszczenie nagłówka - usunięcie powtarzających się informacji:
+html<!DOCTYPE html>
+<html lang="pl">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Galeria: {{ current_folder_display_name }}</title>
+    <link rel="stylesheet" href="{{ ' ../' * depth }}gallery_styles.css" />
+  </head>
+  <body>
+    <div class="container">
+      <div class="breadcrumb">
+        {% for part in breadcrumb_parts %} 
+        {% if part.link %}
+        <a href="{{ part.link }}">{{ part.name }}</a> <span>/</span>
+        {% else %}
+        <span>{{ part.name }}</span>
+        {% endif %} 
+        {% endfor %}
+      </div>
 
-* {
-    box-sizing: border-box;
-}
+      <!-- TYLKO JEDEN NAGŁÓWEK -->
+      <h1>{{ current_folder_display_name }}</h1>
 
-body {
-    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif;
-    margin: 0;
-    padding: 20px;
-    background: linear-gradient(135deg, var(--bg-primary) 0%, #0a0e16 100%);
-    color: var(--text-primary);
-    line-height: 1.6;
-    min-height: 100vh;
-}
+      <!-- USUŃ te powtarzające się elementy:
+      <p style="color: var(--text-secondary); margin-bottom: 24px">
+        {{ folder_info.path }}
+      </p>
 
-.container {
-    max-width: none; /* Usuwa ograniczenie szerokości */
-    width: 100%;
-    margin: 0;
-    background: var(--bg-secondary);
-    padding: 24px;
-    border-radius: var(--radius);
-    box-shadow: var(--shadow);
-    min-height: calc(100vh - 40px);
-}
+      <div class="gallery-controls">
+        <label for="sizeSlider">Rozmiar kafelków:</label>
+        <input type="range" id="sizeSlider" min="150" max="350" value="200" />
+        <span id="sizeValue">200px</span>
+      </div>
+      -->
 
-h1, h2, h3 {
-    color: var(--text-primary);
-    margin: 0 0 16px 0;
-    font-weight: 600;
-    border-bottom: 1px solid var(--border);
-    padding-bottom: 8px;
-}
+      {% if subfolders %}
+      <div class="section">
+        <h2>📁 Podfoldery ({{ subfolders|length }})</h2>
+        <div class="subfolders-grid">
+          {% for sf in subfolders %}
+          <div class="subfolder-item">
+            <div class="folder-icon">📁</div>
+            <a href="{{ sf.link }}">{{ sf.name }}</a>
+            <div class="folder-stats">
+              <span>{{ sf.total_size_readable }}</span>
+              <span>{{ sf.file_count }} plików</span>
+              <span>{{ sf.subdir_count }} folderów</span>
+            </div>
+          </div>
+          {% endfor %}
+        </div>
+      </div>
+      {% endif %}
 
-h1 { font-size: 2rem; }
-h2 { font-size: 1.5rem; }
-h3 { font-size: 1.25rem; }
+      <!-- Reszta bez zmian... -->
+    </div>
 
-.breadcrumb {
-    margin-bottom: 24px;
-    padding: 12px 16px;
-    background: var(--bg-tertiary);
-    border-radius: var(--radius-sm);
-    font-size: 0.95rem;
-    border: 1px solid var(--border);
-    display: flex;
-    align-items: center;
-    gap: 8px;
-}
-
-.breadcrumb a {
-    color: var(--accent);
-    transition: var(--transition);
-    text-decoration: none;
-    padding: 4px 8px;
-    border-radius: var(--radius-sm);
-}
-
-.breadcrumb a:hover {
-    color: var(--accent-hover);
-    background: var(--accent-bg);
-}
-
-.gallery-controls {
-    background: var(--bg-tertiary);
-    padding: 16px 20px;
-    border-radius: var(--radius);
-    margin-bottom: 24px;
-    border: 1px solid var(--border);
-    display: flex;
-    align-items: center;
-    gap: 16px;
-}
-
-.gallery-controls label {
-    color: var(--text-primary);
-    font-weight: 500;
-    font-size: 0.9rem;
-}
-
-.gallery-controls input[type="range"] {
-    -webkit-appearance: none;
-    appearance: none;
-    height: 4px;
-    background: var(--bg-primary);
-    border-radius: 2px;
-    outline: none;
-    flex: 1;
-    max-width: 200px;
-}
-
-.gallery-controls input[type="range"]::-webkit-slider-thumb {
-    -webkit-appearance: none;
-    appearance: none;
-    width: 18px;
-    height: 18px;
-    background: var(--accent);
-    border-radius: 50%;
-    cursor: pointer;
-    transition: var(--transition);
-    border: 2px solid var(--bg-secondary);
-}
-
-.gallery-controls input[type="range"]::-webkit-slider-thumb:hover {
-    background: var(--accent-hover);
-    transform: scale(1.15);
-    box-shadow: 0 0 12px var(--accent);
-}
-
-#sizeValue {
-    color: var(--text-secondary);
-    font-size: 0.85rem;
-    min-width: 50px;
-}
-
-.section {
-    margin-bottom: 32px;
-}
-
-/* GALERIA - RESPONSIVE GRID */
-.gallery {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
-    gap: 20px;
-    margin-bottom: 30px;
-}
-
-.gallery-item {
-    background: var(--bg-tertiary);
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    padding: 16px;
-    text-align: center;
-    transition: var(--transition);
-    position: relative;
-    overflow: hidden;
-    cursor: pointer;
-}
-
-.gallery-item:hover {
-    transform: translateY(-4px);
-    box-shadow: var(--shadow-hover);
-    border-color: var(--accent);
-    background: var(--bg-quaternary);
-}
-
-.gallery-item img {
-    width: 100%;
-    height: 160px;
-    object-fit: cover;
-    border-radius: var(--radius-sm);
-    margin-bottom: 12px;
-    transition: var(--transition);
-    cursor: pointer;
-}
-
-.gallery-item:hover img {
-    transform: scale(1.02);
-}
-
-.gallery-item p {
-    margin: 4px 0;
-    font-size: 0.9rem;
-    word-wrap: break-word;
-    color: var(--text-primary);
-}
-
-.file-info {
-    font-size: 0.75rem;
-    color: var(--text-secondary);
-}
-
-/* PODGLĄD W MODALNYM OKNIE */
-.preview-modal {
-    position: fixed;
-    top: 50%;
-    left: 50%;
-    transform: translate(-50%, -50%);
-    background: var(--bg-secondary);
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    box-shadow: var(--shadow-hover);
-    padding: 20px;
-    z-index: 1001;
-    max-width: 80vw;
-    max-height: 80vh;
-    display: none;
-}
-
-.preview-modal.show {
-    display: block;
-}
-
-.preview-modal img {
-    max-width: 100%;
-    max-height: 70vh;
-    object-fit: contain;
-    border-radius: var(--radius-sm);
-}
-
-.preview-backdrop {
-    position: fixed;
-    top: 0;
-    left: 0;
-    width: 100vw;
-    height: 100vh;
-    background: rgba(0, 0, 0, 0.7);
-    backdrop-filter: blur(4px);
-    z-index: 1000;
-    display: none;
-}
-
-.preview-backdrop.show {
-    display: block;
-}
-
-/* PODFOLDERY */
-.subfolders-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
-    gap: 16px;
-    margin-bottom: 30px;
-}
-
-.subfolder-item {
-    background: var(--bg-tertiary);
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    padding: 16px;
-    text-align: center;
-    transition: var(--transition);
-    cursor: pointer;
+    <!-- Usuń JavaScript związany z suwakami rozmiaru -->
+  </body>
+</html>
+Zmiany w pliku templates/gallery_styles.css
+Nowe style dla podfolderów z ikonkami i statystykami:
+css.subfolder-item {
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 16px;
+  text-align: center;
+  transition: var(--transition);
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
 }
 
 .subfolder-item:hover {
-    transform: translateY(-2px);
-    box-shadow: 0 8px 24px rgba(88, 166, 255, 0.15);
-    border-color: var(--accent);
-    background: var(--bg-quaternary);
+  transform: translateY(-2px);
+  box-shadow: 0 8px 24px rgba(88, 166, 255, 0.15);
+  border-color: var(--accent);
+  background: var(--bg-quaternary);
+}
+
+.folder-icon {
+  font-size: 2rem;
+  margin-bottom: 8px;
 }
 
 .subfolder-item a {
-    color: var(--text-primary);
-    text-decoration: none;
-    font-weight: 500;
-    display: block;
-    font-size: 0.95rem;
+  color: var(--text-primary);
+  text-decoration: none;
+  font-weight: 500;
+  font-size: 0.95rem;
+  margin-bottom: 8px;
 }
 
 .subfolder-item:hover a {
-    color: var(--accent);
-}
-
-.no-preview-list {
-    list-style: none;
-    padding: 0;
-    background: var(--bg-tertiary);
-    border-radius: var(--radius);
-    overflow: hidden;
-    border: 1px solid var(--border);
-}
-
-.no-preview-list li {
-    padding: 16px 20px;
-    border-bottom: 1px solid var(--border-muted);
-    transition: var(--transition);
-}
-
-.no-preview-list li:last-child {
-    border-bottom: none;
-}
-
-.no-preview-list li:hover {
-    background: var(--bg-quaternary);
-}
-
-.no-preview-list a {
-    color: var(--text-primary);
-    text-decoration: none;
-    font-weight: 500;
-}
-
-.no-preview-list a:hover {
-    color: var(--accent);
+  color: var(--accent);
 }
 
 .folder-stats {
-    background: linear-gradient(135deg, var(--bg-tertiary) 0%, var(--bg-quaternary) 100%);
-    padding: 20px;
-    border-radius: var(--radius);
-    border: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 0.8rem;
+  color: var(--text-secondary);
 }
 
-.folder-stats h3 {
-    margin-top: 0;
-    color: var(--accent);
+.folder-stats span {
+  background: var(--bg-primary);
+  padding: 2px 6px;
+  border-radius: 4px;
 }
 
-.folder-stats p {
-    margin: 8px 0;
-    color: var(--text-primary);
-}
+/* Usuń style związane z gallery-controls */
+Zmiany w pliku main.py
+Nowy layout z panelem statystyk po prawej stronie:
+pythondef init_ui(self):
+    main_widget = QWidget(self)
+    self.setCentralWidget(main_widget)
+    main_layout = QVBoxLayout(main_widget)
 
-a {
-    color: var(--accent);
-    text-decoration: none;
-    transition: var(--transition);
-}
-
-a:hover {
-    color: var(--accent-hover);
-}
-
-/* RESPONSIVE */
-@media (max-width: 1200px) {
-    .gallery {
-        grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
-        gap: 16px;
-    }
-}
-
-@media (max-width: 768px) {
-    .container {
-        padding: 16px;
-        margin: 10px;
-    }
+    # Górny panel kontrolny - wszystkie przyciski w jednym rzędzie
+    controls_widget = QWidget()
+    controls_layout = QVBoxLayout(controls_widget)
     
-    .gallery {
-        grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
-        gap: 12px;
-    }
+    # Sekcja wyboru folderu
+    folder_layout = QHBoxLayout()
+    self.folder_label = QLabel("Folder roboczy: Brak")
+    folder_layout.addWidget(self.folder_label, 1)
     
-    .subfolders-grid {
-        grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
-    }
+    self.select_folder_button = QPushButton("📁 Wybierz Folder")
+    self.select_folder_button.setStyleSheet("QPushButton { background-color: #4CAF50; color: white; font-weight: bold; }")
+    folder_layout.addWidget(self.select_folder_button)
+    controls_layout.addLayout(folder_layout)
+
+    # Wszystkie przyciski akcji w jednym rzędzie
+    action_layout = QHBoxLayout()
     
-    .gallery-controls {
-        flex-direction: column;
-        align-items: stretch;
-        gap: 12px;
-    }
-}
-Nowy plik templates/gallery_template.html
-html<!DOCTYPE html>
-<html lang="pl">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Galeria: {{ current_folder_display_name }}</title>
-    <link rel="stylesheet" href="{{ ' ../' * depth }}gallery_styles.css">
-</head>
-<body>
-    <div class="container">
-        <div class="breadcrumb">
-            {% for part in breadcrumb_parts %}
-                {% if part.link %}
-                    <a href="{{ part.link }}">{{ part.name }}</a> <span>/</span>
-                {% else %}
-                    <span>{{ part.name }}</span>
-                {% endif %}
-            {% endfor %}
-        </div>
-        
-        <h1>{{ current_folder_display_name }}</h1>
-        <p style="color: var(--text-secondary); margin-bottom: 24px;">{{ folder_info.path }}</p>
+    self.start_scan_button = QPushButton("🔍 Skanuj Foldery")
+    self.start_scan_button.setStyleSheet("QPushButton { background-color: #2196F3; color: white; }")
+    self.start_scan_button.clicked.connect(self.start_scan)
+    action_layout.addWidget(self.start_scan_button)
+    
+    self.rebuild_gallery_button = QPushButton("🔄 Przebuduj Galerię")
+    self.rebuild_gallery_button.setStyleSheet("QPushButton { background-color: #FF9800; color: white; }")
+    self.rebuild_gallery_button.clicked.connect(self.rebuild_gallery)
+    action_layout.addWidget(self.rebuild_gallery_button)
 
-        <div class="gallery-controls">
-            <label for="sizeSlider">Rozmiar kafelków:</label>
-            <input type="range" id="sizeSlider" min="150" max="350" value="200">
-            <span id="sizeValue">200px</span>
-        </div>
+    self.open_gallery_button = QPushButton("👁️ Pokaż Galerię")
+    self.open_gallery_button.setStyleSheet("QPushButton { background-color: #9C27B0; color: white; }")
+    self.open_gallery_button.clicked.connect(self.show_gallery_in_app)
+    action_layout.addWidget(self.open_gallery_button)
 
-        {% if subfolders %}
-        <div class="section">
-            <h2>📁 Podfoldery ({{ subfolders|length }})</h2>
-            <div class="subfolders-grid">
-                {% for sf in subfolders %}
-                <div class="subfolder-item">
-                    <a href="{{ sf.link }}">{{ sf.name }}</a>
-                </div>
-                {% endfor %}
-            </div>
-        </div>
-        {% endif %}
+    self.clear_gallery_cache_button = QPushButton("🗑️ Wyczyść Cache")
+    self.clear_gallery_cache_button.setStyleSheet("QPushButton { background-color: #F44336; color: white; }")
+    self.clear_gallery_cache_button.clicked.connect(self.clear_current_gallery_cache)
+    action_layout.addWidget(self.clear_gallery_cache_button)
 
-        {% if files_with_previews %}
-        <div class="section">
-            <h2>🖼️ Pliki z podglądem ({{ files_with_previews|length }})</h2>
-            <div class="gallery" id="filesWithPreviewsGallery">
-                {% for file in files_with_previews %}
-                <div class="gallery-item">
-                    {% if file.preview_relative_path %}
-                    <img src="{{ file.preview_relative_path }}" 
-                         alt="Podgląd dla {{ file.name }}" 
-                         class="preview-image"
-                         data-full-src="{{ file.preview_relative_path }}">
-                    {% else %}
-                    <div style="height: 160px; background: var(--bg-primary); display: flex; align-items: center; justify-content: center; border-radius: 8px; color: var(--text-secondary);">
-                        <span>Brak podglądu</span>
-                    </div>
-                    {% endif %}
-                    <p><a href="{{ file.archive_link }}" title="Otwórz: {{ file.name }}">{{ file.name }}</a></p>
-                    <p class="file-info">{{ file.size_readable }}</p>
-                </div>
-                {% endfor %}
-            </div>
-        </div>
-        {% endif %}
+    self.cancel_button = QPushButton("❌ Anuluj")
+    self.cancel_button.setStyleSheet("QPushButton { background-color: #607D8B; color: white; }")
+    self.cancel_button.clicked.connect(self.cancel_operations)
+    self.cancel_button.setEnabled(False)
+    action_layout.addWidget(self.cancel_button)
+    
+    # Suwak rozmiaru kafelków - wspólny dla całego projektu
+    size_layout = QHBoxLayout()
+    size_layout.addWidget(QLabel("Rozmiar kafelków:"))
+    self.size_slider = QSlider(Qt.Orientation.Horizontal)
+    self.size_slider.setMinimum(150)
+    self.size_slider.setMaximum(350)
+    self.size_slider.setValue(200)
+    self.size_slider.valueChanged.connect(self.update_tile_size)
+    size_layout.addWidget(self.size_slider)
+    
+    self.size_label = QLabel("200px")
+    size_layout.addWidget(self.size_label)
+    action_layout.addLayout(size_layout)
+    
+    controls_layout.addLayout(action_layout)
+    main_layout.addWidget(controls_widget)
 
-        {% if other_images %}
-        <div class="section">
-            <h2>🎨 Pozostałe obrazy ({{ other_images|length }})</h2>
-            <div class="gallery" id="otherImagesGallery">
-                {% for image in other_images %}
-                <div class="gallery-item">
-                    {% if image.image_relative_path %}
-                    <img src="{{ image.image_relative_path }}" 
-                         alt="{{ image.name }}" 
-                         class="preview-image"
-                         data-full-src="{{ image.image_relative_path }}">
-                    {% else %}
-                    <div style="height: 160px; background: var(--bg-primary); display: flex; align-items: center; justify-content: center; border-radius: 8px; color: var(--text-secondary);">
-                        <span>Błąd ładowania</span>
-                    </div>
-                    {% endif %}
-                    <p><a href="{{ image.file_link }}" title="Otwórz: {{ image.name }}">{{ image.name }}</a></p>
-                    <p class="file-info">{{ image.size_readable }}</p>
-                </div>
-                {% endfor %}
-            </div>
-        </div>
-        {% endif %}
+    # Środkowy obszar: WebView
+    self.web_view = QWebEngineView()
+    self.web_view.setPage(CustomWebEnginePage(self.web_view))
+    self.web_view.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+    main_layout.addWidget(self.web_view, 1)
 
-        {% if files_without_previews %}
-        <div class="section">
-            <h2>📄 Pliki bez podglądu ({{ files_without_previews|length }})</h2>
-            <ul class="no-preview-list">
-                {% for file in files_without_previews %}
-                <li>
-                    <a href="{{ file.archive_link }}" title="Otwórz: {{ file.name }}">{{ file.name }}</a>
-                    <span class="file-info"> — {{ file.size_readable }}</span>
-                </li>
-                {% endfor %}
-            </ul>
-        </div>
-        {% endif %}
+    # Dolny obszar: Logi i Statystyki obok siebie
+    bottom_layout = QHBoxLayout()
+    
+    # Logi - lewa połowa
+    self.log_output = QTextEdit()
+    self.log_output.setReadOnly(True)
+    self.log_output.setMaximumHeight(150)
+    bottom_layout.addWidget(self.log_output, 1)
+    
+    # Panel statystyk - prawa połowa
+    self.stats_panel = QWidget()
+    self.stats_panel.setMaximumHeight(150)
+    self.stats_panel.setStyleSheet("QWidget { background-color: #f0f0f0; border: 1px solid #ccc; }")
+    stats_layout = QVBoxLayout(self.stats_panel)
+    
+    self.stats_title = QLabel("📊 Statystyki aktualnego folderu")
+    self.stats_title.setStyleSheet("font-weight: bold; font-size: 14px;")
+    stats_layout.addWidget(self.stats_title)
+    
+    self.stats_path = QLabel("Ścieżka: -")
+    self.stats_size = QLabel("Rozmiar: -")
+    self.stats_files = QLabel("Pliki: -")
+    self.stats_folders = QLabel("Foldery: -")
+    
+    stats_layout.addWidget(self.stats_path)
+    stats_layout.addWidget(self.stats_size)
+    stats_layout.addWidget(self.stats_files)
+    stats_layout.addWidget(self.stats_folders)
+    stats_layout.addStretch()
+    
+    bottom_layout.addWidget(self.stats_panel, 1)
+    
+    bottom_widget = QWidget()
+    bottom_widget.setLayout(bottom_layout)
+    bottom_widget.setMaximumHeight(150)
+    main_layout.addWidget(bottom_widget)
 
-        <div class="section folder-stats">
-            <h3>📊 Statystyki folderu</h3>
-            <p><strong>Całkowity rozmiar:</strong> {{ folder_info.total_size_readable }}</p>
-            <p><strong>Liczba plików:</strong> {{ folder_info.file_count }}</p>
-            <p><strong>Liczba podfolderów:</strong> {{ folder_info.subdir_count }}</p>
-        </div>
-    </div>
+def update_tile_size(self):
+    """Aktualizuje rozmiar kafelków w galerii poprzez JavaScript"""
+    size = self.size_slider.value()
+    self.size_label.setText(f"{size}px")
+    
+    # Wyślij JavaScript do WebView aby zaktualizować CSS
+    js_code = f"""
+    var galleries = document.querySelectorAll('.gallery');
+    galleries.forEach(function(gallery) {{
+        gallery.style.gridTemplateColumns = 'repeat(auto-fill, minmax({size}px, 1fr))';
+    }});
+    """
+    self.web_view.page().runJavaScript(js_code)
 
-    <!-- Modal podglądu -->
-    <div class="preview-backdrop" id="previewBackdrop"></div>
-    <div class="preview-modal" id="previewModal">
-        <img src="" alt="Podgląd" id="previewImg">
-    </div>
-
-    <script>
-        document.addEventListener('DOMContentLoaded', function () {
-            const slider = document.getElementById('sizeSlider');
-            const sizeValueDisplay = document.getElementById('sizeValue');
-            const galleries = [
-                document.getElementById('filesWithPreviewsGallery'),
-                document.getElementById('otherImagesGallery')
-            ].filter(Boolean);
-
-            const previewModal = document.getElementById('previewModal');
-            const previewBackdrop = document.getElementById('previewBackdrop');
-            const previewImg = document.getElementById('previewImg');
-
-            // Aktualizacja rozmiaru kafelków
-            function updateTileSize() {
-                const newSize = slider.value + 'px';
-                sizeValueDisplay.textContent = newSize;
+def update_folder_stats(self, folder_path=None):
+    """Aktualizuje panel statystyk folderu"""
+    if not folder_path:
+        folder_path = self.current_work_directory
+    
+    if not folder_path or not os.path.exists(folder_path):
+        self.stats_path.setText("Ścieżka: -")
+        self.stats_size.setText("Rozmiar: -")
+        self.stats_files.setText("Pliki: -")
+        self.stats_folders.setText("Foldery: -")
+        return
+    
+    # Wczytaj statystyki z index.json jeśli istnieje
+    index_json = os.path.join(folder_path, "index.json")
+    if os.path.exists(index_json):
+        try:
+            with open(index_json, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                folder_info = data.get("folder_info", {})
                 
-                galleries.forEach(gallery => {
-                    gallery.style.gridTemplateColumns = `repeat(auto-fill, minmax(${slider.value}px, 1fr))`;
-                });
-            }
+                self.stats_path.setText(f"Ścieżka: {folder_path}")
+                self.stats_size.setText(f"Rozmiar: {folder_info.get('total_size_readable', '0 B')}")
+                self.stats_files.setText(f"Pliki: {folder_info.get('file_count', 0)}")
+                self.stats_folders.setText(f"Foldery: {folder_info.get('subdir_count', 0)}")
+        except:
+            self.stats_path.setText(f"Ścieżka: {folder_path}")
+            self.stats_size.setText("Rozmiar: Błąd odczytu")
+            self.stats_files.setText("Pliki: -")
+            self.stats_folders.setText("Foldery: -")
+    else:
+        self.stats_path.setText(f"Ścieżka: {folder_path}")
+        self.stats_size.setText("Rozmiar: Nie zeskanowano")
+        self.stats_files.setText("Pliki: -")
+        self.stats_folders.setText("Foldery: -")
 
-            // Podgląd w modalnym oknie
-            function showPreview(imageSrc) {
-                previewImg.src = imageSrc;
-                previewModal.classList.add('show');
-                previewBackdrop.classList.add('show');
-                
-                // Wyśrodkowanie
-                previewModal.style.transform = 'translate(-50%, -50%)';
-            }
-
-            function hidePreview() {
-                previewModal.classList.remove('show');
-                previewBackdrop.classList.remove('show');
-                previewImg.src = '';
-            }
-
-            // Event listeners
-            if (slider) {
-                slider.addEventListener('input', updateTileSize);
-                updateTileSize();
-            }
-
-            // Podgląd na hover
-            galleries.forEach(gallery => {
-                const images = gallery.querySelectorAll('.preview-image');
-                images.forEach(img => {
-                    let hoverTimeout;
-                    
-                    img.addEventListener('mouseenter', function() {
-                        hoverTimeout = setTimeout(() => {
-                            showPreview(this.src);
-                        }, 500); // 500ms opóźnienia
-                    });
-                    
-                    img.addEventListener('mouseleave', function() {
-                        clearTimeout(hoverTimeout);
-                    });
-                });
-            });
-
-            // Zamykanie modala
-            previewBackdrop.addEventListener('click', hidePreview);
-            previewModal.addEventListener('click', hidePreview);
-            
-            document.addEventListener('keydown', function(e) {
-                if (e.key === 'Escape') {
-                    hidePreview();
-                }
-            });
-        });
-    </script>
-</body>
-</html>
+def select_work_directory(self):
+    # ... kod wyboru folderu ...
+    # Na końcu dodaj:
+    self.update_folder_stats()
 Główne zmiany:
 
-Automatyczne otwieranie galerii - Po wyborze folderu automatycznie otwiera galerię lub ją buduje
-Pełna szerokość - Usunięto ograniczenie max-width, strona zajmuje całą dostępną przestrzeń
-Rozmiar kafelków - Suwak teraz zmienia rozmiar całych kafelków, nie tylko miniaturek
-Modal podglądu - Podgląd w małym oknie modalnym zamiast na całym ekranie
-Nowoczesny design - GitHub-style ciemny motyw z lepszymi kolorami i efektami
-Większe okno startowe - 1400x900px z minimum 1200x800px
+Cachowanie tylko HTML - miniaturki nie są kopiowane, używane są bezpośrednie ścieżki file:///
+Jeden nagłówek - usunięto powtarzające się informacje o ścieżce
+Podfoldery z ikonkami i statystykami - każdy podfolder pokazuje rozmiar, liczbę plików i folderów
+Suwak rozmiaru w UI aplikacji - wspólny dla całego projektu, nie w każdej stronie osobno
+Panel statystyk w aplikacji - po prawej stronie dolnego panelu, pokazuje statystyki aktualnego folderu
+Stylizowane przyciski - każdy ma inny kolor i ikonkę dla lepszego rozróżnienia
 
-Teraz aplikacja powinna działać znacznie lepiej i wyglądać profesjonalnie!
+Te zmiany znacznie poprawią wydajność (brak kopiowania plików) i użyteczność interfejsu!
