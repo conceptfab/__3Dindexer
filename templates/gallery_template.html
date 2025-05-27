@@ -17,11 +17,8 @@
         {% endif %} {% endfor %}
       </div>
 
-      <!-- USUNIĘTO NAGŁÓWEK H1 -->
-
       {% if subfolders %}
       <div class="section">
-        <!-- USUNIĘTO NAGŁÓWEK H2 - zbędny tekst -->
         <div class="subfolders-grid">
           {% for sf in subfolders %}
           <div
@@ -90,10 +87,21 @@
           <ul class="no-preview-list">
             {% for file in files_without_previews %}
             <li>
-              <a href="{{ file.archive_link }}" title="Otwórz: {{ file.name }}"
-                >{{ file.name }}</a
-              >
-              <span class="file-info"> — {{ file.size_readable }}</span>
+              <div class="file-item">
+                <input
+                  type="checkbox"
+                  class="file-checkbox"
+                  data-file="{{ file.name }}"
+                  data-path="{{ file.path_absolute }}"
+                  data-type="archive"
+                />
+                <a
+                  href="{{ file.archive_link }}"
+                  title="Otwórz: {{ file.name }}"
+                  >{{ file.name }}</a
+                >
+                <span class="file-info"> — {{ file.size_readable }}</span>
+              </div>
             </li>
             {% endfor %}
           </ul>
@@ -104,19 +112,38 @@
           <ul class="image-list">
             {% for image in other_images %}
             <li>
-              <a
-                href="{{ image.file_link }}"
-                title="Otwórz: {{ image.name }}"
-                data-preview-src="{{ image.image_relative_path }}"
-                class="preview-link"
-                >{{ image.name }}</a
-              >
-              <span class="file-info"> — {{ image.size_readable }}</span>
+              <div class="file-item">
+                <input
+                  type="checkbox"
+                  class="file-checkbox"
+                  data-file="{{ image.name }}"
+                  data-path="{{ image.path_absolute }}"
+                  data-type="image"
+                />
+                <a
+                  href="{{ image.file_link }}"
+                  title="Otwórz: {{ image.name }}"
+                  data-preview-src="{{ image.image_relative_path }}"
+                  class="preview-link"
+                  >{{ image.name }}</a
+                >
+                <span class="file-info"> — {{ image.size_readable }}</span>
+              </div>
             </li>
             {% endfor %}
           </ul>
         </div>
         {% endif %}
+      </div>
+      {% endif %}
+
+      <!-- PRZYCISK DOPASUJ PODGLĄD -->
+      {% if files_without_previews and other_images %}
+      <div class="learning-section">
+        <button id="matchPreviewBtn" class="match-preview-btn" disabled>
+          🎯 Dopasuj podgląd
+        </button>
+        <div id="matchStatus" class="match-status"></div>
       </div>
       {% endif %}
     </div>
@@ -136,6 +163,8 @@
         const previewModal = document.getElementById('previewModal');
         const previewBackdrop = document.getElementById('previewBackdrop');
         const previewImg = document.getElementById('previewImg');
+        const matchBtn = document.getElementById('matchPreviewBtn');
+        const matchStatus = document.getElementById('matchStatus');
 
         // Podgląd w modalnym oknie
         function showPreview(imageSrc) {
@@ -198,6 +227,85 @@
             hidePreview();
           }
         });
+
+        // FUNKCJONALNOŚĆ UCZENIA SIĘ ALGORYTMU
+        if (matchBtn) {
+          const checkboxes = document.querySelectorAll('.file-checkbox');
+
+          function updateMatchButton() {
+            const archiveChecked = Array.from(checkboxes).filter(
+              (cb) => cb.checked && cb.dataset.type === 'archive'
+            );
+            const imageChecked = Array.from(checkboxes).filter(
+              (cb) => cb.checked && cb.dataset.type === 'image'
+            );
+
+            // Aktywuj przycisk gdy dokładnie 1 archiwum i 1 obraz jest zaznaczony
+            matchBtn.disabled = !(
+              archiveChecked.length === 1 && imageChecked.length === 1
+            );
+
+            if (matchBtn.disabled) {
+              matchStatus.textContent = '';
+            } else {
+              matchStatus.textContent = `Gotowy do dopasowania: ${archiveChecked[0].dataset.file} ↔ ${imageChecked[0].dataset.file}`;
+            }
+          }
+
+          // Nasłuchuj zmian w checkboxach
+          checkboxes.forEach((checkbox) => {
+            checkbox.addEventListener('change', function () {
+              // Jeśli zaznaczono checkbox, odznacz inne w tej samej kategorii
+              if (this.checked) {
+                checkboxes.forEach((otherCheckbox) => {
+                  if (
+                    otherCheckbox !== this &&
+                    otherCheckbox.dataset.type === this.dataset.type
+                  ) {
+                    otherCheckbox.checked = false;
+                  }
+                });
+              }
+              updateMatchButton();
+            });
+          });
+
+          // Obsługa kliknięcia przycisku dopasowania
+          matchBtn.addEventListener('click', function () {
+            const archiveChecked = Array.from(checkboxes).find(
+              (cb) => cb.checked && cb.dataset.type === 'archive'
+            );
+            const imageChecked = Array.from(checkboxes).find(
+              (cb) => cb.checked && cb.dataset.type === 'image'
+            );
+
+            if (archiveChecked && imageChecked) {
+              // Wyślij żądanie do backend (będzie implementowane w main.py)
+              const matchData = {
+                archiveFile: archiveChecked.dataset.file,
+                archivePath: archiveChecked.dataset.path,
+                imageFile: imageChecked.dataset.file,
+                imagePath: imageChecked.dataset.path,
+                currentPath: window.location.pathname,
+              };
+
+              // Wyślij informację o dopasowaniu do aplikacji PyQt
+              if (window.pyqtbridge) {
+                window.pyqtbridge.learnMatch(JSON.stringify(matchData));
+              } else {
+                // Fallback - zapisz do localStorage dla PyQt
+                localStorage.setItem('pendingMatch', JSON.stringify(matchData));
+                matchStatus.textContent =
+                  '✅ Dopasowanie zapisane - zostanie zastosowane przy następnym skanowaniu';
+
+                // Wyczyść checkboxy
+                archiveChecked.checked = false;
+                imageChecked.checked = false;
+                updateMatchButton();
+              }
+            }
+          });
+        }
       });
     </script>
   </body>

@@ -5,9 +5,10 @@ import re
 import shutil
 import sys
 import webbrowser
+from datetime import datetime
 
 import qdarktheme
-from PyQt6.QtCore import Qt, QThread, QUrl, pyqtSignal
+from PyQt6.QtCore import Qt, QThread, QTimer, QUrl, pyqtSignal
 from PyQt6.QtGui import QDesktopServices
 from PyQt6.QtWebEngineCore import QWebEnginePage
 from PyQt6.QtWebEngineWidgets import QWebEngineView
@@ -205,6 +206,7 @@ class MainWindow(QMainWindow):
         self.update_status_label()
         self.update_gallery_buttons_state()
         self.setup_theme_menu()
+        self.setup_learning_bridge()
 
         if self.current_work_directory:
             print(f"🔍 INIT - Sprawdzanie galerii dla: {self.current_work_directory}")
@@ -216,6 +218,8 @@ class MainWindow(QMainWindow):
             # TUTAJ ZAWSZE WYWOŁAJ AKTUALIZACJĘ STATYSTYK
             print(f"🔍 INIT - Wywołuję update_folder_stats()")
             self.update_folder_stats()
+            # Sprawdź oczekujące dopasowania po załadowaniu galerii
+            QTimer.singleShot(1000, self.check_for_pending_matches)
 
     def setup_theme_menu(self):
         """Dodaje menu przełączania motywów."""
@@ -1021,6 +1025,117 @@ class MainWindow(QMainWindow):
         except Exception as e:
             print(f"❌ Błąd mapowania ścieżki galerii: {e}")
             return None
+
+    def setup_learning_bridge(self):
+        """Konfiguruje most komunikacyjny z JavaScript dla funkcji uczenia się"""
+        # Dodaj obsługę learning bridge w WebView
+        self.web_view.loadFinished.connect(self.inject_learning_bridge)
+
+    def inject_learning_bridge(self):
+        """Wstrzykuje bridge JavaScript dla komunikacji z funkcją uczenia się"""
+        bridge_js = """
+        window.pyqtbridge = {
+            learnMatch: function(matchDataJson) {
+                // Dane zostaną odebrane przez PyQt
+                console.log('Learning match data:', matchDataJson);
+                return matchDataJson;
+            }
+        };
+        """
+        self.web_view.page().runJavaScript(bridge_js)
+
+    def check_for_pending_matches(self):
+        """Sprawdza czy są oczekujące dopasowania w localStorage"""
+        js_code = """
+        (function() {
+            const pendingMatch = localStorage.getItem('pendingMatch');
+            if (pendingMatch) {
+                localStorage.removeItem('pendingMatch');
+                return pendingMatch;
+            }
+            return null;
+        })();
+        """
+
+        def handle_pending_match(result):
+            if result:
+                try:
+                    import json
+
+                    match_data = json.loads(result)
+                    self.process_learning_match(match_data)
+                except Exception as e:
+                    self.log_message(f"Błąd przetwarzania dopasowania: {e}")
+
+        self.web_view.page().runJavaScript(js_code, handle_pending_match)
+
+    def process_learning_match(self, match_data):
+        """Przetwarza nowe dopasowanie i uczy algorytm"""
+        try:
+            archive_file = match_data.get("archiveFile", "")
+            image_file = match_data.get("imageFile", "")
+            archive_path = match_data.get("archivePath", "")
+            image_path = match_data.get("imagePath", "")
+
+            self.log_message(f"Nauczone dopasowanie: {archive_file} ↔ {image_file}")
+
+            # Zapisz nowe dopasowanie do pliku uczenia się
+            self.save_learning_data(archive_file, image_file, archive_path, image_path)
+
+            # Opcjonalnie: natychmiastowe ponowne skanowanie folderu
+            if self.current_work_directory:
+                reply = QMessageBox.question(
+                    self,
+                    "Zastosować nauczone dopasowanie?",
+                    f"Czy chcesz natychmiast ponownie przeskanować folder, "
+                    f"aby zastosować nauczone dopasowanie?\n\n"
+                    f"Dopasowanie: {archive_file} ↔ {image_file}",
+                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                    QMessageBox.StandardButton.Yes,
+                )
+                if reply == QMessageBox.StandardButton.Yes:
+                    self.start_scan()
+
+        except Exception as e:
+            self.log_message(f"Błąd przetwarzania nauki: {e}")
+            QMessageBox.warning(
+                self, "Błąd", f"Nie udało się przetworzyć dopasowania: {e}"
+            )
+
+    def save_learning_data(self, archive_file, image_file, archive_path, image_path):
+        """Zapisuje dane uczenia się do pliku JSON"""
+        try:
+            learning_file = "learning_data.json"
+            learning_data = []
+
+            # Wczytaj istniejące dane
+            if os.path.exists(learning_file):
+                with open(learning_file, "r", encoding="utf-8") as f:
+                    learning_data = json.load(f)
+
+            # Dodaj nowe dopasowanie
+            new_match = {
+                "archive_file": archive_file,
+                "image_file": image_file,
+                "archive_path": archive_path,
+                "image_path": image_path,
+                "timestamp": datetime.now().isoformat(),
+                "archive_basename": os.path.splitext(archive_file)[0],
+                "image_basename": os.path.splitext(image_file)[0],
+            }
+
+            learning_data.append(new_match)
+
+            # Zapisz zaktualizowane dane
+            with open(learning_file, "w", encoding="utf-8") as f:
+                json.dump(learning_data, f, indent=2, ensure_ascii=False)
+
+            self.log_message(
+                f"Zapisano dane uczenia się: {len(learning_data)} dopasowań"
+            )
+
+        except Exception as e:
+            self.log_message(f"Błąd zapisu danych uczenia się: {e}")
 
 
 if __name__ == "__main__":

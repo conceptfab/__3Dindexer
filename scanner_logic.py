@@ -125,18 +125,54 @@ def get_folder_stats(folder_path):
     return stats
 
 
-def find_matching_preview_for_file(base_filename, image_files_in_folder):
+def load_learning_data():
+    """Wczytuje dane uczenia się z pliku JSON"""
+    try:
+        learning_file = "learning_data.json"
+        if os.path.exists(learning_file):
+            with open(learning_file, "r", encoding="utf-8") as f:
+                return json.load(f)
+        return []
+    except Exception as e:
+        logger.error(f"Błąd wczytywania danych uczenia się: {e}")
+        return []
+
+
+def find_learned_match(archive_basename, learning_data):
+    """Sprawdza czy istnieje nauczone dopasowanie dla danego pliku archiwum"""
+    for match in learning_data:
+        if match.get("archive_basename", "").lower() == archive_basename.lower():
+            return match.get("image_basename", "")
+    return None
+
+
+def find_matching_preview_for_file(
+    base_filename, image_files_in_folder, learning_data=None
+):
     """
     Szuka pasującego pliku podglądu dla dowolnego pliku.
-    Dopasowuje na podstawie nazwy bazowej z obsługą różnych wariantów:
-    - zamiana podkreśleń na spacje i odwrotnie
-    - dodatkowe cyfry i tekst na końcu nazwy obrazu
-    - różne separatory (_, -, spacja)
-    - ignorowanie wielkości liter
+    NOWA FUNKCJONALNOŚĆ: Najpierw sprawdza nauczone dopasowania!
     """
     if not base_filename:
         return None
 
+    # PIERWSZEŃSTWO: Sprawdź nauczone dopasowania
+    if learning_data:
+        learned_image = find_learned_match(base_filename, learning_data)
+        if learned_image:
+            # Szukaj dokładnego dopasowania nazwy z nauki
+            for img_path in image_files_in_folder:
+                img_name = os.path.basename(img_path)
+                img_base, img_ext = os.path.splitext(img_name)
+
+                if img_ext.lower() in IMAGE_EXTENSIONS:
+                    if img_base.lower() == learned_image.lower():
+                        logger.info(
+                            f"🎓 NAUCZONE dopasowanie: '{base_filename}' ↔ '{img_name}'"
+                        )
+                        return img_path
+
+    # FALLBACK: Użyj standardowego algorytmu jeśli nie ma nauki
     base_name = base_filename.lower().strip()
 
     # Twórz różne warianty nazwy bazowej
@@ -324,12 +360,19 @@ def log_file_matching_debug(folder_path, progress_callback=None):
 def process_folder(folder_path, progress_callback=None):
     """
     Przetwarza pojedynczy folder: zbiera informacje i generuje index.json.
-    Rekursywnie wywołuje się dla podfolderów.
+    NOWA FUNKCJONALNOŚĆ: Używa danych uczenia się.
     """
     logger.info(f"Rozpoczęcie przetwarzania folderu: {folder_path}")
 
     if progress_callback:
         progress_callback(f"Przetwarzanie folderu: {folder_path}")
+
+    # WCZYTAJ DANE UCZENIA SIĘ
+    learning_data = load_learning_data()
+    if learning_data:
+        logger.info(f"Wczytano {len(learning_data)} nauczonych dopasowań")
+        if progress_callback:
+            progress_callback(f"Zastosowano {len(learning_data)} nauczonych dopasowań")
 
     # DODAJ DEBUG MATCHING (opcjonalnie, tylko dla problemów)
     # log_file_matching_debug(folder_path, progress_callback)
@@ -446,8 +489,9 @@ def process_folder(folder_path, progress_callback=None):
             "size_readable": get_file_size_readable(file_size_bytes),
         }
 
+        # ULEPSZONE dopasowywanie z NAUKĄ
         preview_file_path = find_matching_preview_for_file(
-            file_basename, full_path_image_files
+            file_basename, full_path_image_files, learning_data
         )
 
         if preview_file_path:
@@ -456,9 +500,13 @@ def process_folder(folder_path, progress_callback=None):
             file_info["preview_path_absolute"] = os.path.abspath(preview_file_path)
             index_data["files_with_previews"].append(file_info)
             found_previews_paths.add(preview_file_path)
+            logger.info(
+                f"✅ Dopasowano: '{file_name}' ↔ '{os.path.basename(preview_file_path)}'"
+            )
         else:
             file_info["preview_found"] = False
             index_data["files_without_previews"].append(file_info)
+            logger.debug(f"❌ Brak podglądu dla: '{file_name}'")
 
     # Dodaj obrazy, które nie zostały sparowane jako podglądy
     for img_name in image_filenames:
