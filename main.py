@@ -43,7 +43,6 @@ class ScannerWorker(QThread):
     def __init__(self, root_folder):
         super().__init__()
         self.root_folder = root_folder
-        self.is_cancelled = False
 
     def run(self):
         try:
@@ -51,16 +50,10 @@ class ScannerWorker(QThread):
         except Exception as e:
             self.progress_signal.emit(f"Wystąpił krytyczny błąd skanowania: {e}")
         finally:
-            if not self.is_cancelled:
-                self.finished_signal.emit()
+            self.finished_signal.emit()
 
     def emit_progress(self, message):
-        if not self.is_cancelled:
-            self.progress_signal.emit(message)
-
-    def cancel(self):
-        self.is_cancelled = True
-        self.progress_signal.emit("Anulowano skanowanie.")
+        self.progress_signal.emit(message)
 
 
 class GalleryWorker(QThread):
@@ -71,7 +64,6 @@ class GalleryWorker(QThread):
         super().__init__()
         self.scanned_root_path = scanned_root_path
         self.gallery_cache_root = gallery_cache_root
-        self.is_cancelled = False
 
     def run(self):
         root_html_path = None
@@ -112,9 +104,6 @@ class GalleryWorker(QThread):
                 )
 
             for dirpath, _, filenames in os.walk(self.scanned_root_path):
-                if self.is_cancelled:
-                    self.progress_signal.emit("Anulowano generowanie galerii.")
-                    break
                 if "index.json" in filenames:
                     index_json_file = os.path.join(dirpath, "index.json")
                     generated_html = gallery_generator.process_single_index_json(
@@ -127,15 +116,14 @@ class GalleryWorker(QThread):
                     if dirpath == self.scanned_root_path and generated_html:
                         root_html_path = generated_html
 
-            if not self.is_cancelled:
-                if root_html_path:
-                    self.progress_signal.emit(
-                        f"Generowanie galerii zakończone. Główny plik: {root_html_path}"
-                    )
-                else:
-                    self.progress_signal.emit(
-                        "Nie udało się wygenerować głównego pliku galerii lub brak index.json w folderze głównym."
-                    )
+            if root_html_path:
+                self.progress_signal.emit(
+                    f"Generowanie galerii zakończone. Główny plik: {root_html_path}"
+                )
+            else:
+                self.progress_signal.emit(
+                    "Nie udało się wygenerować głównego pliku galerii lub brak index.json w folderze głównym."
+                )
 
         except Exception as e:
             self.progress_signal.emit(
@@ -145,16 +133,10 @@ class GalleryWorker(QThread):
 
             self.progress_signal.emit(traceback.format_exc())
         finally:
-            if not self.is_cancelled:
-                self.finished_signal.emit(root_html_path)
+            self.finished_signal.emit(root_html_path)
 
     def emit_progress(self, message):
-        if not self.is_cancelled:
-            self.progress_signal.emit(message)
-
-    def cancel(self):
-        self.is_cancelled = True
-        self.progress_signal.emit("Próba anulowania generowania galerii.")
+        self.progress_signal.emit(message)
 
 
 # Niestandardowa strona QWebEnginePage do obsługi linków
@@ -198,6 +180,8 @@ class MainWindow(QMainWindow):
         self.scanner_thread = None
         self.gallery_thread = None
         self.current_gallery_root_html = None
+        self.learning_timer = None
+        self.file_operations_timer = None
 
         # DEBUGGING
         print(f"🔍 INIT - current_work_directory: {self.current_work_directory}")
@@ -207,6 +191,7 @@ class MainWindow(QMainWindow):
         self.update_status_label()
         self.update_gallery_buttons_state()
         self.setup_learning_bridge()
+        self.setup_file_operations_bridge()
 
         if self.current_work_directory:
             print(f"🔍 INIT - Sprawdzanie galerii dla: {self.current_work_directory}")
@@ -215,9 +200,6 @@ class MainWindow(QMainWindow):
                 self.current_gallery_root_html
             ):
                 self.show_gallery_in_app()
-            # TUTAJ ZAWSZE WYWOŁAJ AKTUALIZACJĘ STATYSTYK
-            print(f"🔍 INIT - Wywołuję update_folder_stats()")
-            self.update_folder_stats()
             # Sprawdź oczekujące dopasowania po załadowaniu galerii
             QTimer.singleShot(1000, self.check_for_learning_matches)
 
@@ -226,17 +208,17 @@ class MainWindow(QMainWindow):
         self.setCentralWidget(main_widget)
         main_layout = QVBoxLayout(main_widget)
 
-        # Górny pasek z przyciskami
-        top_bar = QWidget()
-        top_layout = QHBoxLayout(top_bar)
-        top_layout.setContentsMargins(0, 0, 0, 0)
+        # Górny pasek z kontrolkami w jednej linii
+        controls_widget = QWidget()
+        controls_layout = QHBoxLayout(controls_widget)
+        controls_layout.setContentsMargins(0, 0, 0, 0)
+        controls_layout.setSpacing(10)
 
-        # Przycisk Wybierz Folder
+        # Przycisk wyboru folderu
         self.select_folder_button = QPushButton("📁 Wybierz Folder")
         self.select_folder_button.setStyleSheet(
             """
             QPushButton {
-                font-weight: bold;
                 padding: 8px 16px;
                 border-radius: 6px;
             }
@@ -245,76 +227,83 @@ class MainWindow(QMainWindow):
             }
         """
         )
+        self.select_folder_button.setMinimumWidth(90)
         self.select_folder_button.clicked.connect(self.select_work_directory)
-        top_layout.addWidget(self.select_folder_button)
+        controls_layout.addWidget(self.select_folder_button)
 
         # Etykieta folderu roboczego
         self.folder_label = QLabel("Folder roboczy: Brak")
-        self.folder_label.setStyleSheet("color: #ffffff;")
-        top_layout.addWidget(self.folder_label, 1)
+        self.folder_label.setStyleSheet("padding: 8px;")
+        controls_layout.addWidget(self.folder_label, 1)  # 1 oznacza rozciągnięcie
 
-        # Przycisk Skanuj Foldery
+        # Przyciski akcji
         self.start_scan_button = QPushButton("🔍 Skanuj Foldery")
         self.start_scan_button.setStyleSheet(
             """
             QPushButton {
                 padding: 8px 16px;
                 border-radius: 6px;
-                font-weight: 500;
+            }
+            QPushButton:hover {
+                background-color: #2d5aa0;
             }
         """
         )
+        self.start_scan_button.setMinimumWidth(90)
         self.start_scan_button.clicked.connect(self.start_scan)
-        top_layout.addWidget(self.start_scan_button)
+        controls_layout.addWidget(self.start_scan_button)
 
-        # Przycisk Przebuduj Galerię
         self.rebuild_gallery_button = QPushButton("🔄 Przebuduj Galerię")
         self.rebuild_gallery_button.setStyleSheet(
             """
             QPushButton {
                 padding: 8px 16px;
                 border-radius: 6px;
-                font-weight: 500;
+            }
+            QPushButton:hover {
+                background-color: #2d5aa0;
             }
         """
         )
+        self.rebuild_gallery_button.setMinimumWidth(90)
         self.rebuild_gallery_button.clicked.connect(lambda: self.rebuild_gallery(True))
-        top_layout.addWidget(self.rebuild_gallery_button)
+        controls_layout.addWidget(self.rebuild_gallery_button)
 
-        # Przycisk Pokaż Galerię
         self.open_gallery_button = QPushButton("👁️ Pokaż Galerię")
         self.open_gallery_button.setStyleSheet(
             """
             QPushButton {
                 padding: 8px 16px;
                 border-radius: 6px;
-                font-weight: 500;
+            }
+            QPushButton:hover {
+                background-color: #2d5aa0;
             }
         """
         )
+        self.open_gallery_button.setMinimumWidth(90)
         self.open_gallery_button.clicked.connect(self.show_gallery_in_app)
-        top_layout.addWidget(self.open_gallery_button)
+        controls_layout.addWidget(self.open_gallery_button)
 
-        # Przycisk Wyczyść Cache
         self.clear_gallery_cache_button = QPushButton("🗑️ Wyczyść Cache")
         self.clear_gallery_cache_button.setStyleSheet(
             """
             QPushButton {
                 padding: 8px 16px;
                 border-radius: 6px;
-                font-weight: 500;
             }
             QPushButton:hover {
                 background-color: #c62d42;
             }
         """
         )
+        self.clear_gallery_cache_button.setMinimumWidth(90)
         self.clear_gallery_cache_button.clicked.connect(
             self.clear_current_gallery_cache
         )
-        top_layout.addWidget(self.clear_gallery_cache_button)
+        controls_layout.addWidget(self.clear_gallery_cache_button)
 
-        main_layout.addWidget(top_bar)
+        main_layout.addWidget(controls_widget)
 
         # Pasek postępu
         self.progress_bar = QProgressBar()
@@ -343,68 +332,50 @@ class MainWindow(QMainWindow):
         self.web_view.urlChanged.connect(self.on_webview_url_changed)
         main_layout.addWidget(self.web_view, 1)
 
-        # Dolny pasek z kontrolkami
-        bottom_bar = QWidget()
-        bottom_bar.setStyleSheet(
-            """
-            QWidget {
-                background-color: rgba(255, 255, 255, 0.05);
-                border: 1px solid rgba(255, 255, 255, 0.1);
-                border-radius: 8px;
-                padding: 8px;
-            }
-        """
-        )
-        bottom_layout = QHBoxLayout(bottom_bar)
-        bottom_layout.setContentsMargins(8, 8, 8, 8)
-
-        # Kontrolka rozmiaru kafelków
+        # Kontrolka rozmiaru kafelków na dole
         size_control_widget = QWidget()
         size_control_layout = QHBoxLayout(size_control_widget)
         size_control_layout.setContentsMargins(0, 0, 0, 0)
-        size_control_layout.setSpacing(0)
-        size_control_widget.setStyleSheet(
-            "background: none; border: none; margin: 0; padding: 0;"
-        )
+        size_control_layout.setSpacing(10)
+
+        # Lewa strona - suwak
+        left_widget = QWidget()
+        left_layout = QHBoxLayout(left_widget)
+        left_layout.setContentsMargins(0, 0, 0, 0)
+        left_layout.setSpacing(10)
 
         self.size_label = QLabel("Rozmiar kafelków: 200px")
         self.size_label.setStyleSheet(
             """
             color: #ffffff;
             font-weight: 500;
-            background: none;
-            border: none;
-            margin: 0;
-            padding: 0;
-            min-width: 140px;
-            max-width: 160px;
-            """
+            padding: 0 10px;
+        """
         )
 
         self.size_slider = QSlider(Qt.Orientation.Horizontal)
         self.size_slider.setMinimum(100)
-        self.size_slider.setMaximum(300)
+        self.size_slider.setMaximum(400)
         self.size_slider.setValue(200)
-        self.size_slider.setFixedHeight(20)
-        self.size_slider.setFixedWidth(300)
         self.size_slider.setTickPosition(QSlider.TickPosition.TicksBelow)
         self.size_slider.setTickInterval(50)
+        self.size_slider.valueChanged.connect(self.update_tile_size)
+        self.size_slider.setFixedWidth(300)
         self.size_slider.setStyleSheet(
             """
-            QSlider { background: none; border: none; margin: 0; padding: 0; }
             QSlider::groove:horizontal {
-                border: none;
-                height: 4px;
+                border: 1px solid #999999;
+                height: 5px;
                 background: #2d2d2d;
-                margin: 0;
+                margin: 1px 0;
                 border-radius: 2px;
             }
             QSlider::handle:horizontal {
                 background: #3daee9;
-                border: none;
-                width: 12px;
+                border: 1px solid #5c5c5c;
+                width: 14px;
                 margin: -2px 0;
-                border-radius: 6px;
+                border-radius: 7px;
             }
             QSlider::handle:horizontal:hover {
                 background: #4db8f0;
@@ -413,40 +384,56 @@ class MainWindow(QMainWindow):
                 background: #3daee9;
                 border-radius: 2px;
             }
-            QSlider::add-page:horizontal {
-                background: #222;
-                border-radius: 2px;
-            }
-            """
+        """
         )
-        self.size_slider.valueChanged.connect(self.update_tile_size)
-        # Dodaj etykietę i suwak do layoutu
-        size_control_layout.addWidget(self.size_label)
-        size_control_layout.addWidget(self.size_slider)
-        # Dodaj kontrolkę do dolnego paska, wyrównaną do lewej
-        bottom_layout.addWidget(size_control_widget, 0, Qt.AlignmentFlag.AlignLeft)
 
-        # Placeholdery na 4 przyciski
-        for i in range(4):
-            placeholder = QPushButton(f"Przycisk {i+1}")
-            placeholder.setStyleSheet(
+        left_layout.addWidget(self.size_label)
+        left_layout.addWidget(self.size_slider)
+        left_layout.addStretch()
+
+        # Prawa strona - przyciski operacji na plikach
+        right_widget = QWidget()
+        right_layout = QHBoxLayout(right_widget)
+        right_layout.setContentsMargins(0, 0, 0, 0)
+        right_layout.setSpacing(10)
+
+        # Przyciski operacji na plikach (ikona + tekst, identyczny styl jak górne)
+        file_operations = [
+            (
+                "📁➡️ Przenieś pliki",
+                "Przenieś pliki",
+                self.show_move_files_dialog_python,
+            ),
+            ("✏️ Zmień nazwy", "Zmień nazwy", self.show_rename_files_dialog_python),
+            ("📁+ Nowy folder", "Nowy folder", self.show_create_folder_dialog_python),
+            ("🗑️📁 Usuń puste", "Usuń puste", self.show_delete_empty_dialog_python),
+            ("🔄 Odśwież", "Odśwież", self.force_refresh_gallery),
+        ]
+
+        for text, tooltip, handler in file_operations:
+            btn = QPushButton(text)
+            btn.setToolTip(tooltip)
+            btn.setStyleSheet(
                 """
                 QPushButton {
                     padding: 8px 16px;
                     border-radius: 6px;
-                    font-weight: 500;
-                    background-color: rgba(255, 255, 255, 0.1);
                 }
                 QPushButton:hover {
-                    background-color: rgba(255, 255, 255, 0.2);
+                    background-color: #2d5aa0;
                 }
             """
             )
-            bottom_layout.addWidget(placeholder)
+            btn.setMinimumWidth(90)
+            btn.clicked.connect(handler)
+            right_layout.addWidget(btn)
 
-        main_layout.addWidget(bottom_bar)
+        # Dodaj oba widgety do głównego layoutu
+        size_control_layout.addWidget(left_widget)
+        size_control_layout.addWidget(right_widget)
+        main_layout.addWidget(size_control_widget)
 
-        # Pasek statusu
+        # Pasek statusu na dole
         self.statusBar = QLabel()
         self.statusBar.setStyleSheet(
             """
@@ -472,32 +459,17 @@ class MainWindow(QMainWindow):
     def on_webview_url_changed(self, url):
         self.log_message(f"WebView URL changed to: {url.toString()}")
 
-        # AKTUALIZUJ STATYSTYKI DLA AKTUALNEGO FOLDERU W GALERII
+        # Pobierz folder z URL galerii
         local_path = url.toLocalFile()
         print(f"🔍 URL_CHANGED - local_path: {local_path}")
 
         if local_path and os.path.exists(local_path) and local_path.endswith(".html"):
-            # Pobierz folder z URL galerii
             gallery_folder = os.path.dirname(local_path)
             print(f"🔍 URL_CHANGED - gallery_folder: {gallery_folder}")
 
             # Sprawdź czy to nasza galeria (folder w _gallery_cache)
             if "_gallery_cache" in gallery_folder:
-                # Znajdź odpowiadający oryginalny folder
-                original_folder = self.get_original_folder_from_gallery_path(
-                    gallery_folder
-                )
-                print(f"🔍 URL_CHANGED - original_folder: {original_folder}")
-
-                if original_folder:
-                    print(
-                        f"🔍 URL_CHANGED - Aktualizuję statystyki dla: {original_folder}"
-                    )
-                    self.update_folder_stats(original_folder)
-                else:
-                    print(
-                        f"❌ URL_CHANGED - Nie znaleziono oryginalnego folderu dla: {gallery_folder}"
-                    )
+                print(f"ℹ️ URL_CHANGED - Przejście do nowej strony galerii")
 
     def get_current_gallery_path(self):
         if not self.current_work_directory:
@@ -560,12 +532,6 @@ class MainWindow(QMainWindow):
             self.current_gallery_root_html = self.get_current_gallery_index_html()
             self.update_gallery_buttons_state()
 
-            # DEBUGGING I AKTUALIZACJA STATYSTYK - zawsze dla głównego folderu
-            print(
-                f"🔍 SELECT - Wywołuję update_folder_stats() dla GŁÓWNEGO folderu: {folder}"
-            )
-            self.update_folder_stats(folder)  # Przekaż konkretną ścieżkę
-
             # POTEM AUTOMATYCZNE OTWIERANIE GALERII PO WYBORZE FOLDERU
             if self.current_gallery_root_html and os.path.exists(
                 self.current_gallery_root_html
@@ -576,7 +542,8 @@ class MainWindow(QMainWindow):
                 self.rebuild_gallery(auto_show_after_build=True)
 
     def log_message(self, message):
-        """Wyświetla komunikat na pasku statusu"""
+        """Wyświetla komunikat na pasku statusu i w konsoli"""
+        print(f"ℹ️ UI: {message}")  # Dodajemy prefix ℹ️ dla lepszej czytelności
         self.statusBar.setText(message)
         QApplication.processEvents()
 
@@ -597,7 +564,6 @@ class MainWindow(QMainWindow):
                 and os.path.isdir(self.get_current_gallery_path())
             )
         )
-        self.cancel_button.setEnabled(processing)
 
     def start_scan(self):
         if not self.current_work_directory:
@@ -622,15 +588,6 @@ class MainWindow(QMainWindow):
     def scan_finished(self):
         self.progress_bar.setVisible(False)
         self.set_buttons_for_processing(False)
-
-        # DEBUGGING I AKTUALIZACJA STATYSTYK PO ZAKOŃCZENIU SKANOWANIA - główny folder
-        print(
-            f"🔍 SCAN_FINISHED - Wywołuję update_folder_stats() dla GŁÓWNEGO folderu: {self.current_work_directory}"
-        )
-        self.log_message("Skanowanie zakończone - aktualizacja statystyk")
-        self.update_folder_stats(
-            self.current_work_directory
-        )  # Przekaż konkretną ścieżkę
 
         QMessageBox.information(self, "Sukces", "Skanowanie zakończone pomyślnie!")
 
@@ -683,34 +640,24 @@ class MainWindow(QMainWindow):
         self.set_buttons_for_processing(True)
         self.gallery_thread.start()
 
-    def gallery_generation_finished(
-        self, root_html_path, auto_show=True
-    ):  # Dodano argument
-        is_cancelled = (
-            self.gallery_thread.is_cancelled if self.gallery_thread else False
-        )
-        self.current_gallery_root_html = (
-            root_html_path if not is_cancelled and root_html_path else None
-        )
+    def gallery_generation_finished(self, root_html_path, auto_show=True):
+        self.current_gallery_root_html = root_html_path if root_html_path else None
 
-        if not is_cancelled:
-            if self.current_gallery_root_html:
-                self.log_message(
-                    f"Przebudowa galerii zakończona. Główny plik: {self.current_gallery_root_html}"
-                )
-                QMessageBox.information(
-                    self, "Koniec", "Generowanie galerii HTML zakończone."
-                )
-                if auto_show:  # Automatycznie pokaż po przebudowie
-                    self.show_gallery_in_app()
-            else:
-                self.log_message("Nie udało się wygenerować galerii.")
-                QMessageBox.warning(
-                    self, "Błąd", "Nie udało się wygenerować galerii HTML."
-                )
-                self.web_view.setHtml(
-                    "<html><body><p style='text-align:center; padding-top:50px;'>Nie udało się wygenerować galerii.</p></body></html>"
-                )
+        if self.current_gallery_root_html:
+            self.log_message(
+                f"Przebudowa galerii zakończona. Główny plik: {self.current_gallery_root_html}"
+            )
+            QMessageBox.information(
+                self, "Koniec", "Generowanie galerii HTML zakończone."
+            )
+            if auto_show:  # Automatycznie pokaż po przebudowie
+                self.show_gallery_in_app()
+        else:
+            self.log_message("Nie udało się wygenerować galerii.")
+            QMessageBox.warning(self, "Błąd", "Nie udało się wygenerować galerii HTML.")
+            self.web_view.setHtml(
+                "<html><body><p style='text-align:center; padding-top:50px;'>Nie udało się wygenerować galerii.</p></body></html>"
+            )
 
         self.set_buttons_for_processing(False)
         self.gallery_thread = None
@@ -723,24 +670,16 @@ class MainWindow(QMainWindow):
             self.web_view.setUrl(QUrl.fromLocalFile(abs_path))
             self.log_message(f"Ładowanie galerii do widoku: {abs_path}")
 
-            # Ustaw rozmiar kafelków po załadowaniu
-            def apply_tile_size():
-                self.update_tile_size()
-
-            # Opóźnienie aby strona się załadowała
-            QApplication.processEvents()
-            self.web_view.loadFinished.connect(lambda: self.update_tile_size())
-
+            # Używamy lambda żeby uniknąć wielokrotnego wywoływania
+            self.web_view.loadFinished.connect(lambda ok: self.on_gallery_loaded(ok))
         else:
-            self.log_message("Plik główny galerii nie istnieje. Przebuduj galerię.")
-            QMessageBox.information(
-                self,
-                "Galeria nie istnieje",
-                "Plik główny galerii (index.html) nie istnieje. Przebuduj galerię.",
-            )
-            self.web_view.setHtml(
-                "<html><body><p style='text-align:center; padding-top:50px;'>Galeria nie istnieje lub nie została jeszcze wygenerowana.</p></body></html>"
-            )
+            self.log_message("❌ Nie znaleziono pliku galerii")
+
+    def on_gallery_loaded(self, ok):
+        if ok:
+            self.inject_file_operations_bridge()
+            self.update_tile_size()
+            print("✅ Galeria załadowana, wtryknięto mostek operacji na plikach")
 
     def clear_current_gallery_cache(self):
         gallery_path_to_clear = self.get_current_gallery_path()
@@ -785,16 +724,6 @@ class MainWindow(QMainWindow):
                     self, "Błąd usuwania", f"Nie udało się usunąć folderu cache: {e}"
                 )
 
-    def cancel_operations(self):
-        if self.scanner_thread and self.scanner_thread.isRunning():
-            self.scanner_thread.cancel()
-            self.log_message("Próba anulowania skanowania...")
-        elif self.gallery_thread and self.gallery_thread.isRunning():
-            self.gallery_thread.cancel()
-            self.log_message("Próba anulowania generowania galerii...")
-        else:
-            self.log_message("Brak aktywnej operacji do anulowania.")
-
     def closeEvent(self, event):
         if (self.scanner_thread and self.scanner_thread.isRunning()) or (
             self.gallery_thread and self.gallery_thread.isRunning()
@@ -808,10 +737,6 @@ class MainWindow(QMainWindow):
             )
             if reply == QMessageBox.StandardButton.Yes:
                 if self.scanner_thread:
-                    self.scanner_thread.cancel()
-                if self.gallery_thread:
-                    self.gallery_thread.cancel()
-                if self.scanner_thread:
                     self.scanner_thread.wait(1000)
                 if self.gallery_thread:
                     self.gallery_thread.wait(1000)
@@ -824,7 +749,7 @@ class MainWindow(QMainWindow):
     def update_tile_size(self):
         """Aktualizuje rozmiar kafelków w galerii poprzez JavaScript"""
         size = self.size_slider.value()
-        self.size_label.setText(f"Rozmiar kafelków: {size}px")
+        self.size_label.setText(f"{size}px")
 
         # Wyślij JavaScript do WebView aby zaktualizować CSS
         js_code = f"""
@@ -838,616 +763,928 @@ class MainWindow(QMainWindow):
         """
         self.web_view.page().runJavaScript(js_code)
 
-    def update_folder_stats(self, folder_path=None):
-        """Aktualizuje statystyki folderu"""
-        # Jeśli nie podano ścieżki, użyj głównego folderu roboczego
-        if not folder_path:
-            folder_path = self.current_work_directory
-
-        if not folder_path or not os.path.exists(folder_path):
-            self.log_message("Brak folderu do sprawdzenia statystyk")
-            return
-
-        # Wczytaj statystyki z index.json jeśli istnieje
-        index_json = os.path.join(folder_path, "index.json")
-        self.log_message(f"Sprawdzanie pliku index.json: {index_json}")
-
-        if os.path.exists(index_json):
-            try:
-                with open(index_json, "r", encoding="utf-8") as f:
-                    data = json.load(f)
-                    folder_info = data.get("folder_info", {})
-
-                    self.log_message(
-                        f"Wczytano dane z index.json: {list(folder_info.keys()) if folder_info else 'brak folder_info'}"
-                    )
-
-                    if folder_info and isinstance(folder_info, dict):
-                        # Sprawdź czy mamy wymagane klucze
-                        total_size = folder_info.get("total_size_readable", "0 B")
-                        file_count = folder_info.get("file_count", 0)
-                        subdir_count = folder_info.get("subdir_count", 0)
-                        archive_count = folder_info.get("archive_count", 0)
-                        scan_date = folder_info.get("scan_date", "Nieznana")
-
-                        # Dodaj nazwę aktualnego folderu do statystyk
-                        folder_name = os.path.basename(folder_path)
-                        stats_text = (
-                            f"📁 {folder_name} | "
-                            f"Rozmiar: {total_size} | "
-                            f"Pliki: {file_count} | "
-                            f"Foldery: {subdir_count} | "
-                            f"Archiwa: {archive_count} | "
-                            f"Skanowano: {scan_date}"
-                        )
-                        self.log_message(stats_text)
-                    else:
-                        self.log_message(
-                            "Dane folder_info są puste - uruchom skanowanie"
-                        )
-            except json.JSONDecodeError as e:
-                self.log_message(f"Błąd formatu JSON: {str(e)}")
-            except Exception as e:
-                self.log_message(f"Błąd odczytu: {str(e)}")
-        else:
-            folder_name = os.path.basename(folder_path)
-            self.log_message(
-                f"📁 {folder_name} - Naciśnij 'Skanuj Foldery' aby zobaczyć statystyki"
-            )
-
-    def debug_refresh_stats(self):
-        """Debugowa funkcja odświeżania statystyk"""
-        # Sprawdź czy jesteśmy w galerii i pobierz aktualny folder
-        current_url = self.web_view.url().toLocalFile()
-        if current_url and "_gallery_cache" in current_url:
-            gallery_folder = os.path.dirname(current_url)
-            original_folder = self.get_original_folder_from_gallery_path(gallery_folder)
-            if original_folder:
-                print(
-                    f"🔍 REFRESH - Ręczne odświeżenie statystyk dla aktualnego folderu: {original_folder}"
-                )
-                self.log_message(
-                    f"Ręczne odświeżenie statystyk dla: {os.path.basename(original_folder)}"
-                )
-                self.update_folder_stats(original_folder)
-                return
-
-        # Fallback - główny folder roboczy
-        print(
-            f"🔍 REFRESH - Ręczne odświeżenie statystyk dla głównego folderu: {self.current_work_directory}"
-        )
-        self.log_message(f"Ręczne odświeżenie statystyk dla głównego folderu")
-        self.update_folder_stats()
-
-    def get_original_folder_from_gallery_path(self, gallery_path):
-        """Mapuje ścieżkę galerii na oryginalną ścieżkę folderu"""
-        try:
-            if not self.current_work_directory:
-                print("❌ get_original_folder - Brak current_work_directory")
-                return None
-
-            # Pobierz sanitized name głównego folderu
-            sanitized_main = gallery_generator.sanitize_path_for_foldername(
-                self.current_work_directory
-            )
-            print(f"🔍 get_original_folder - sanitized_main: {sanitized_main}")
-
-            # Znajdź względną ścieżkę w galerii
-            gallery_cache_path = os.path.join(self.GALLERY_CACHE_DIR, sanitized_main)
-            print(f"🔍 get_original_folder - gallery_cache_path: {gallery_cache_path}")
-            print(f"🔍 get_original_folder - gallery_path: {gallery_path}")
-
-            if gallery_path.startswith(gallery_cache_path):
-                # Pobierz względną ścieżkę od głównego folderu galerii
-                relative_path = os.path.relpath(gallery_path, gallery_cache_path)
-                print(f"🔍 get_original_folder - relative_path: {relative_path}")
-
-                if relative_path == ".":
-                    # To główny folder
-                    print(
-                        f"🔍 get_original_folder - To główny folder: {self.current_work_directory}"
-                    )
-                    return self.current_work_directory
-                else:
-                    # To podfolder
-                    original_path = os.path.join(
-                        self.current_work_directory, relative_path
-                    )
-                    print(
-                        f"🔍 get_original_folder - Sprawdzam podfolder: {original_path}"
-                    )
-                    if os.path.exists(original_path):
-                        print(
-                            f"✅ get_original_folder - Znaleziono podfolder: {original_path}"
-                        )
-                        return original_path
-                    else:
-                        print(
-                            f"❌ get_original_folder - Podfolder nie istnieje: {original_path}"
-                        )
-            else:
-                print(
-                    f"❌ get_original_folder - gallery_path nie zaczyna się od gallery_cache_path"
-                )
-
-            return None
-        except Exception as e:
-            print(f"❌ Błąd mapowania ścieżki galerii: {e}")
-            return None
-
     def setup_learning_bridge(self):
-        """Konfiguruje most komunikacyjny z JavaScript dla funkcji uczenia się"""
-        self.web_view.loadFinished.connect(self.inject_learning_bridge)
-
-        # Timer do sprawdzania nowych dopasowań co sekundę
+        """Konfiguruje mostek do komunikacji z JavaScript dla uczenia"""
         self.learning_timer = QTimer()
         self.learning_timer.timeout.connect(self.check_for_learning_matches)
-        self.learning_timer.start(1000)  # Co sekundę
+        self.learning_timer.start(500)  # Co pół sekundy
 
-        # Timer do sprawdzania usuwania plików
-        self.delete_timer = QTimer()
-        self.delete_timer.timeout.connect(self.check_for_file_deletions)
-        self.delete_timer.start(1000)  # Co sekundę
+    def setup_file_operations_bridge(self):
+        """Konfiguruje mostek do komunikacji z JavaScript dla operacji na plikach"""
+        self.file_operations_timer = QTimer()
+        self.file_operations_timer.timeout.connect(self.check_for_file_operations)
+        self.file_operations_timer.start(500)  # Co pół sekundy
 
     def inject_learning_bridge(self):
-        """Wstrzykuje bridge JavaScript dla komunikacji z funkcją uczenia się"""
-        bridge_js = """
-        console.log('🔌 Learning bridge injected');
-        window.addEventListener('learningMatchReady', function(event) {
-            console.log('🎯 Learning match event received:', event.detail);
-        });
+        """Wstrzykuje kod JavaScript do obsługi uczenia"""
+        js_code = """
+        window.handleLearningMatch = function(matchData) {
+            const matchKey = 'learningMatch_' + Date.now();
+            localStorage.setItem(matchKey, JSON.stringify(matchData));
+            localStorage.setItem('latestLearningMatch', matchKey);
+        };
         """
-        self.web_view.page().runJavaScript(bridge_js)
+        self.web_view.page().runJavaScript(js_code)
 
     def check_for_learning_matches(self):
-        """Sprawdza localStorage pod kątem nowych dopasowań do nauki"""
-        js_code = """
-        (function() {
-            try {
-                // Sprawdź czy localStorage jest dostępny
-                if (typeof(Storage) === "undefined" || !localStorage) {
-                    console.log('localStorage nie jest dostępny');
-                    return null;
-                }
-                
-                const latestMatchKey = localStorage.getItem('latestMatch');
-                if (latestMatchKey) {
-                    const matchData = localStorage.getItem(latestMatchKey);
-                    if (matchData) {
-                        // Usuń z localStorage
-                        localStorage.removeItem(latestMatchKey);
-                        localStorage.removeItem('latestMatch');
-                        console.log('🔍 Found learning match:', matchData);
-                        return matchData;
-                    }
-                }
-                return null;
-            } catch(e) {
-                console.error('Error checking learning matches:', e.name + ': ' + e.message);
-                return null;
-            }
-        })();
-        """
-
-        self.web_view.page().runJavaScript(js_code, self.handle_learning_match)
-
-    def handle_learning_match(self, result):
-        """Obsługuje nowe dopasowanie z JavaScript"""
-        if result:
-            try:
-                match_data = json.loads(result)
-                print(f"🎓 OTRZYMANO NOWE DOPASOWANIE: {match_data}")
-                self.log_message(
-                    f"🎓 Nowe dopasowanie: {match_data['archiveFile']} ↔ {match_data['imageFile']}"
-                )
-
-                # Zapisz dopasowanie
-                self.save_learning_data(
-                    match_data["archiveFile"],
-                    match_data["imageFile"],
-                    match_data["archivePath"],
-                    match_data["imagePath"],
-                )
-
-                # NATYCHMIASTOWE ZASTOSOWANIE - ponowne skanowanie aktualnego folderu
-                self.apply_learning_immediately(match_data)
-
-            except Exception as e:
-                print(f"❌ Błąd przetwarzania dopasowania: {e}")
-                self.log_message(f"Błąd przetwarzania dopasowania: {e}")
-
-    def apply_learning_immediately(self, match_data):
-        """Natychmiast stosuje nauczone dopasowanie"""
+        """Sprawdza czy są nowe dopasowania do nauki"""
         try:
-            # Znajdź folder z którego pochodzi dopasowanie
-            archive_path = match_data.get("archivePath", "")
-            if archive_path:
-                current_folder = os.path.dirname(archive_path.replace("/", os.sep))
-                print(f"🔄 Ponowne skanowanie folderu: {current_folder}")
+            js_code = """
+            (function() {
+                const latestKey = localStorage.getItem('latestLearningMatch');
+                if (!latestKey) return null;
+                
+                const matchData = localStorage.getItem(latestKey);
+                localStorage.removeItem(latestKey);
+                localStorage.removeItem('latestLearningMatch');
+                return matchData;
+            })();
+            """
 
-                # Uruchom ponowne skanowanie tego konkretnego folderu
-                self.rescan_specific_folder(current_folder)
+            self.web_view.page().runJavaScript(js_code, self.handle_learning_match)
 
         except Exception as e:
-            print(f"❌ Błąd zastosowania nauki: {e}")
-            self.log_message(f"Błąd zastosowania nauki: {e}")
+            print(f"❌ Błąd check_for_learning_matches: {e}")
 
-    def rescan_specific_folder(self, folder_path):
-        """Ponownie skanuje konkretny folder i odświeża galerię"""
+    def handle_learning_match(self, result):
+        """Obsługuje nowe dopasowanie do nauki"""
         try:
-            if not os.path.exists(folder_path):
-                print(f"❌ Folder nie istnieje: {folder_path}")
+            if not result:
                 return
 
-            self.log_message(f"🔄 Ponowne skanowanie: {folder_path}")
+            match_data = json.loads(result)
+            if not match_data:
+                return
 
-            # Uruchom skanowanie w tle dla tego folderu
-            import threading
+            # Zapisz dane do nauki
+            self.save_learning_data(
+                match_data.get("archive_file"),
+                match_data.get("image_file"),
+                match_data.get("archive_path"),
+                match_data.get("image_path"),
+            )
+
+            # Zastosuj dopasowanie
+            self.apply_learning_immediately(match_data)
+
+        except Exception as e:
+            print(f"❌ Błąd handle_learning_match: {e}")
+
+    def apply_learning_immediately(self, match_data):
+        """Natychmiastowo stosuje dopasowanie"""
+        try:
+            archive_path = match_data.get("archive_path")
+            if not archive_path or not os.path.exists(archive_path):
+                return
+
+            # Przeskanuj folder zawierający archiwum
+            folder_path = os.path.dirname(archive_path)
+            self.rescan_specific_folder(folder_path)
+
+        except Exception as e:
+            print(f"❌ Błąd apply_learning_immediately: {e}")
+
+    def rescan_specific_folder(self, folder_path):
+        """Przeskanowuje konkretny folder"""
+        try:
+            if not os.path.exists(folder_path):
+                return
 
             def scan_and_refresh():
                 try:
                     # Skanuj folder
-                    scanner_logic.process_folder(
-                        folder_path, lambda msg: print(f"📁 {msg}")
-                    )
+                    scanner_logic.start_scanning(folder_path, lambda msg: None)
 
-                    # Odśwież galerię w głównym wątku
-                    QTimer.singleShot(
-                        500, lambda: self.refresh_gallery_after_learning(folder_path)
-                    )
+                    # Odśwież galerię
+                    self.refresh_gallery_after_learning(folder_path)
 
                 except Exception as e:
-                    print(f"❌ Błąd skanowania: {e}")
+                    print(f"❌ Błąd w scan_and_refresh: {e}")
 
-            thread = threading.Thread(target=scan_and_refresh)
-            thread.daemon = True
-            thread.start()
+            # Uruchom w wątku
+            QThread.create(scan_and_refresh)
 
         except Exception as e:
             print(f"❌ Błąd rescan_specific_folder: {e}")
 
     def refresh_gallery_after_learning(self, scanned_folder):
-        """Odświeża galerię po zastosowaniu nauki"""
+        """Odświeża galerię po nauce"""
         try:
-            print(f"🔄 Odświeżanie galerii po nauce dla: {scanned_folder}")
+            if not scanned_folder or not os.path.exists(scanned_folder):
+                return
 
-            # Sprawdź czy to aktualny folder lub jego podfolder
-            current_url = self.web_view.url().toLocalFile()
-            if current_url and "_gallery_cache" in current_url:
-                gallery_folder = os.path.dirname(current_url)
-                original_folder = self.get_original_folder_from_gallery_path(
-                    gallery_folder
-                )
+            # Znajdź główny folder galerii
+            gallery_root = self.get_current_gallery_path()
+            if not gallery_root:
+                return
 
-                if original_folder and (
-                    original_folder == scanned_folder
-                    or scanned_folder.startswith(original_folder)
-                ):
-                    print(
-                        f"✅ Folder {scanned_folder} jest częścią aktualnej galerii - odświeżam"
-                    )
+            # Znajdź folder w galerii odpowiadający przeskanowanemu folderowi
+            relative_path = os.path.relpath(scanned_folder, self.current_work_directory)
+            gallery_folder = os.path.join(gallery_root, relative_path)
 
-                    # Przebuduj galerię
-                    self.rebuild_gallery_silent()
+            if not os.path.exists(gallery_folder):
+                return
 
-                    # Poinformuj o sukcesie przez JavaScript
-                    success_js = """
-                    const matchBtn = document.getElementById('matchPreviewBtn');
-                    const matchStatus = document.getElementById('matchStatus');
-                    if (matchBtn && matchStatus) {
-                        matchBtn.disabled = false;
-                        matchBtn.textContent = '🎯 Dopasuj podgląd';
-                        matchStatus.textContent = '🎉 Dopasowanie zastosowane! Galeria została odświeżona.';
-                        
-                        setTimeout(() => {
-                            matchStatus.textContent = '';
-                        }, 5000);
-                    }
-                    """
-                    self.web_view.page().runJavaScript(success_js)
-
-                    self.log_message("✅ Algorytm nauczony! Galeria odświeżona.")
-
-            else:
-                print(f"ℹ️ Folder {scanned_folder} nie jest częścią aktualnej galerii")
+            # Odśwież galerię
+            self.rebuild_gallery_silent()
 
         except Exception as e:
-            print(f"❌ Błąd odświeżania galerii: {e}")
+            print(f"❌ Błąd refresh_gallery_after_learning: {e}")
 
     def rebuild_gallery_silent(self):
-        """Przebudowuje galerię w tle bez pokazywania dialogów"""
+        """Przebudowuje galerię bez pokazywania"""
         try:
             if not self.current_work_directory:
                 return
 
-            # Sprawdź czy jest już proces
-            if self.gallery_thread and self.gallery_thread.isRunning():
-                return
-
-            print("🔄 Ciche przebudowanie galerii...")
-
-            self.gallery_thread = GalleryWorker(
-                self.current_work_directory, self.GALLERY_CACHE_DIR
+            # Uruchom skanowanie w wątku
+            self.scanner_thread = ScannerWorker(self.current_work_directory)
+            self.scanner_thread.progress_signal.connect(self.log_message)
+            self.scanner_thread.finished_signal.connect(
+                lambda: self.gallery_rebuilt_silently(None)
             )
-            self.gallery_thread.progress_signal.connect(lambda msg: print(f"🏗️ {msg}"))
-            self.gallery_thread.finished_signal.connect(self.gallery_rebuilt_silently)
-            self.gallery_thread.start()
+            self.scanner_thread.start()
 
         except Exception as e:
             print(f"❌ Błąd rebuild_gallery_silent: {e}")
 
     def gallery_rebuilt_silently(self, root_html_path):
-        """Obsługuje zakończenie cichego przebudowania galerii"""
+        """Obsługuje zakończenie cichej przebudowy galerii"""
         try:
-            if root_html_path:
-                print(f"✅ Galeria przebudowana cicho: {root_html_path}")
-
-                # Odśwież aktualną stronę
-                current_url = self.web_view.url()
-                self.web_view.reload()
-
-            self.gallery_thread = None
+            # Po skanowaniu, uruchom generowanie galerii
+            if self.current_work_directory:
+                # Uruchom generator galerii
+                self.gallery_thread = GalleryWorker(
+                    self.current_work_directory, self.GALLERY_CACHE_DIR
+                )
+                self.gallery_thread.progress_signal.connect(self.log_message)
+                self.gallery_thread.finished_signal.connect(
+                    self.on_silent_gallery_finished
+                )
+                self.gallery_thread.start()
 
         except Exception as e:
             print(f"❌ Błąd gallery_rebuilt_silently: {e}")
 
-    def save_learning_data(self, archive_file, image_file, archive_path, image_path):
-        """Zapisuje dane uczenia się do pliku JSON"""
+    def on_silent_gallery_finished(self, root_html_path):
+        """Obsługuje zakończenie cichej przebudowy galerii"""
         try:
+            if root_html_path:
+                self.current_gallery_root_html = root_html_path
+                # Odśwież widok
+                self.show_gallery_in_app()
+
+        except Exception as e:
+            print(f"❌ Błąd on_silent_gallery_finished: {e}")
+
+    def save_learning_data(self, archive_file, image_file, archive_path, image_path):
+        """Zapisuje dane do nauki"""
+        try:
+            if not all([archive_file, image_file, archive_path, image_path]):
+                return
+
+            # Zapisz do pliku JSON
             learning_file = "learning_data.json"
             learning_data = []
 
-            # Wczytaj istniejące dane
             if os.path.exists(learning_file):
-                with open(learning_file, "r", encoding="utf-8") as f:
-                    learning_data = json.load(f)
-
-            # Sprawdź czy już istnieje takie dopasowanie
-            archive_basename = os.path.splitext(archive_file)[0]
-            image_basename = os.path.splitext(image_file)[0]
-
-            # Usuń stare dopasowanie dla tego samego archiwum jeśli istnieje
-            learning_data = [
-                item
-                for item in learning_data
-                if item.get("archive_basename", "").lower() != archive_basename.lower()
-            ]
+                try:
+                    with open(learning_file, "r", encoding="utf-8") as f:
+                        learning_data = json.load(f)
+                except:
+                    pass
 
             # Dodaj nowe dopasowanie
-            new_match = {
-                "archive_file": archive_file,
-                "image_file": image_file,
-                "archive_path": archive_path,
-                "image_path": image_path,
-                "timestamp": datetime.now().isoformat(),
-                "archive_basename": archive_basename,
-                "image_basename": image_basename,
-            }
+            learning_data.append(
+                {
+                    "archive_file": archive_file,
+                    "image_file": image_file,
+                    "archive_path": archive_path,
+                    "image_path": image_path,
+                    "timestamp": datetime.now().isoformat(),
+                }
+            )
 
-            learning_data.append(new_match)
-
-            # Zapisz zaktualizowane dane
+            # Zapisz
             with open(learning_file, "w", encoding="utf-8") as f:
                 json.dump(learning_data, f, indent=2, ensure_ascii=False)
 
-            print(f"💾 Zapisano dane uczenia się: {len(learning_data)} dopasowań")
-            self.log_message(
-                f"💾 Zapisano nauczone dopasowanie: {archive_file} ↔ {image_file}"
+        except Exception as e:
+            print(f"❌ Błąd save_learning_data: {e}")
+
+    def check_for_file_operations(self):
+        """Sprawdza czy są nowe operacje na plikach do wykonania"""
+        try:
+            # Sprawdź usuwanie plików
+            js_code_delete = """
+            (function() {
+                const latestKey = localStorage.getItem('latestDelete');
+                if (!latestKey) return null;
+                
+                const deleteData = localStorage.getItem(latestKey);
+                localStorage.removeItem(latestKey);
+                localStorage.removeItem('latestDelete');
+                return deleteData;
+            })();
+            """
+
+            self.web_view.page().runJavaScript(
+                js_code_delete, self.handle_file_deletion
             )
 
         except Exception as e:
-            print(f"❌ Błąd zapisu danych uczenia się: {e}")
-            self.log_message(f"Błąd zapisu danych uczenia się: {e}")
-
-    def check_for_file_deletions(self):
-        """Sprawdza localStorage pod kątem żądań usunięcia plików"""
-        js_code = """
-        (function() {
-            try {
-                // Sprawdź czy localStorage jest dostępny
-                if (typeof(Storage) === "undefined" || !localStorage) {
-                    console.log('localStorage nie jest dostępny');
-                    return null;
-                }
-                
-                const latestDeleteKey = localStorage.getItem('latestDelete');
-                if (latestDeleteKey) {
-                    const deleteData = localStorage.getItem(latestDeleteKey);
-                    if (deleteData) {
-                        // Usuń z localStorage
-                        localStorage.removeItem(latestDeleteKey);
-                        localStorage.removeItem('latestDelete');
-                        console.log('🗑️ Found delete request:', deleteData);
-                        return deleteData;
-                    }
-                }
-                return null;
-            } catch(e) {
-                console.error('Error checking delete requests:', e.name + ': ' + e.message);
-                return null;
-            }
-        })();
-        """
-
-        self.web_view.page().runJavaScript(js_code, self.handle_file_deletion)
+            print(f"❌ Błąd check_for_file_operations: {e}")
 
     def handle_file_deletion(self, result):
         """Obsługuje żądanie usunięcia pliku"""
-        if result:
-            try:
-                delete_data = json.loads(result)
-                file_path = delete_data.get("filePath", "")
-                file_name = delete_data.get("fileName", "")
+        try:
+            if not result:
+                return
 
-                print(f"🗑️ ŻĄDANIE USUNIĘCIA: {file_name} -> {file_path}")
-                self.log_message(f"🗑️ Usuwanie do kosza: {file_name}")
+            delete_data = json.loads(result)
+            if not delete_data:
+                return
 
-                # Usuń plik do kosza
-                success = self.delete_file_to_trash(file_path)
+            file_path = delete_data.get("filePath")
+            file_name = delete_data.get("fileName")
 
-                if success:
-                    self.log_message(f"✅ Plik usunięty do kosza: {file_name}")
+            if not file_path or not os.path.exists(file_path):
+                print(f"❌ Plik nie istnieje: {file_path}")
+                return
 
-                    # NATYCHMIASTOWE ODŚWIEŻENIE - reskanuj folder i przebuduj galerię
-                    current_url = self.web_view.url().toLocalFile()
-                    if current_url and "_gallery_cache" in current_url:
-                        gallery_folder = os.path.dirname(current_url)
-                        original_folder = self.get_original_folder_from_gallery_path(
-                            gallery_folder
-                        )
+            print(f"🗑️ Usuwanie pliku: {file_name} ({file_path})")
 
-                        if original_folder:
-                            print(
-                                f"🔄 Ponowne skanowanie po usunięciu: {original_folder}"
-                            )
-                            # Reskanuj folder natychmiast
-                            QTimer.singleShot(
-                                100,
-                                lambda: self.rescan_and_rebuild_after_deletion(
-                                    original_folder
-                                ),
-                            )
+            # Usuń plik do kosza
+            self.delete_file_to_trash(file_path)
 
-                else:
-                    self.log_message(f"❌ Błąd usuwania pliku: {file_name}")
-                    # Przywróć element w JavaScript
-                    restore_js = f"""
-                    const deleteKey = 'deleteFile_restore_' + Date.now();
-                    localStorage.setItem(deleteKey, JSON.stringify({{
-                        action: 'restoreFile',
-                        fileName: '{file_name}',
-                        error: 'Nie udało się usunąć pliku'
-                    }}));
-                    localStorage.setItem('latestRestore', deleteKey);
-                    """
-                    self.web_view.page().runJavaScript(restore_js)
-
-            except Exception as e:
-                print(f"❌ Błąd przetwarzania usuwania: {e}")
-                self.log_message(f"Błąd usuwania pliku: {e}")
+        except Exception as e:
+            print(f"❌ Błąd handle_file_deletion: {e}")
+            QMessageBox.critical(self, "Błąd", f"Błąd usuwania pliku: {e}")
 
     def delete_file_to_trash(self, file_path):
-        """Usuwa plik do kosza systemowego"""
+        """Usuwa plik do kosza"""
         try:
-            if not os.path.exists(file_path):
+            if not file_path or not os.path.exists(file_path):
                 print(f"❌ Plik nie istnieje: {file_path}")
-                return False
+                return
 
+            # Usuń do kosza
             send2trash.send2trash(file_path)
-            print(f"✅ Plik usunięty do kosza: {file_path}")
-            return True
 
-        except ImportError:
-            print("❌ Brak biblioteki send2trash - instaluj: pip install send2trash")
-            try:
-                # Fallback - usuń na stałe (niebezpieczne!)
-                os.remove(file_path)
-                print(f"⚠️ Plik usunięty na stałe: {file_path}")
-                return True
-            except Exception as e:
-                print(f"❌ Błąd usuwania pliku: {e}")
-                return False
+            file_name = os.path.basename(file_path)
+            print(f"✅ Usunięto do kosza: {file_name}")
+            self.log_message(f"✅ Usunięto do kosza: {file_name}")
+
+            # Odśwież galerię po usunięciu
+            folder_path = os.path.dirname(file_path)
+            self.rescan_and_rebuild_after_deletion(folder_path)
+
         except Exception as e:
-            print(f"❌ Błąd usuwania do kosza: {e}")
-            return False
+            print(f"❌ Błąd delete_file_to_trash: {e}")
+            QMessageBox.critical(self, "Błąd", f"Błąd usuwania pliku do kosza: {e}")
 
     def rescan_and_rebuild_after_deletion(self, folder_path):
-        """Ponownie skanuje folder i przebudowuje galerię po usunięciu pliku"""
+        """Przeskanowuje i przebudowuje galerię po usunięciu"""
         try:
-            import threading
+            if not folder_path or not os.path.exists(folder_path):
+                print(f"❌ Folder nie istnieje: {folder_path}")
+                return
 
-            self.log_message(f"🔄 Aktualizacja po usunięciu pliku...")
+            print(f"🔄 Odświeżanie galerii po usunięciu z folderu: {folder_path}")
 
             def scan_and_rebuild():
                 try:
-                    # 1. Ponownie przeskanuj folder (aktualizuj index.json)
-                    scanner_logic.process_folder(
-                        folder_path, lambda msg: print(f"📁 RESCAN: {msg}")
+                    # Skanuj folder
+                    scanner_logic.start_scanning(
+                        folder_path, lambda msg: print(f"📁 {msg}")
                     )
 
-                    # 2. Przebuduj galerię w głównym wątku
-                    QTimer.singleShot(200, self.rebuild_gallery_after_deletion)
+                    # Przebuduj galerię po skanowaniu
+                    QTimer.singleShot(100, self.rebuild_gallery_after_deletion)
 
                 except Exception as e:
-                    print(f"❌ Błąd ponownego skanowania: {e}")
-                    QTimer.singleShot(
-                        100, lambda: self.log_message(f"Błąd aktualizacji: {e}")
-                    )
+                    print(f"❌ Błąd w scan_and_rebuild: {e}")
 
-            # Uruchom w osobnym wątku
-            thread = threading.Thread(target=scan_and_rebuild)
-            thread.daemon = True
-            thread.start()
+            # Uruchom w wątku z opóźnieniem
+            QTimer.singleShot(500, scan_and_rebuild)
 
         except Exception as e:
             print(f"❌ Błąd rescan_and_rebuild_after_deletion: {e}")
-            self.log_message(f"Błąd aktualizacji po usunięciu: {e}")
 
     def rebuild_gallery_after_deletion(self):
-        """Przebudowuje galerię po usunięciu pliku"""
+        """Przebudowuje galerię po usunięciu"""
         try:
             if not self.current_work_directory:
                 return
 
-            # Sprawdź czy jest już proces
-            if self.gallery_thread and self.gallery_thread.isRunning():
+            print(f"🔄 Przebudowywanie galerii po usunięciu")
+
+            # Sprawdź czy nie ma już działających wątków
+            if (self.scanner_thread and self.scanner_thread.isRunning()) or (
+                self.gallery_thread and self.gallery_thread.isRunning()
+            ):
+                print("⏳ Inne operacje w toku, pomijam przebudowę")
                 return
 
-            print("🔄 Przebudowa galerii po usunięciu pliku...")
-            self.log_message("🔄 Aktualizacja galerii...")
-
+            # Uruchom generator galerii
             self.gallery_thread = GalleryWorker(
                 self.current_work_directory, self.GALLERY_CACHE_DIR
             )
             self.gallery_thread.progress_signal.connect(lambda msg: print(f"🏗️ {msg}"))
             self.gallery_thread.finished_signal.connect(
-                self.gallery_rebuilt_after_deletion
+                self.on_gallery_rebuilt_after_deletion
             )
             self.gallery_thread.start()
 
         except Exception as e:
             print(f"❌ Błąd rebuild_gallery_after_deletion: {e}")
 
-    def gallery_rebuilt_after_deletion(self, root_html_path):
+    def on_gallery_rebuilt_after_deletion(self, root_html_path):
         """Obsługuje zakończenie przebudowy galerii po usunięciu"""
         try:
             if root_html_path:
+                self.current_gallery_root_html = root_html_path
                 print(f"✅ Galeria przebudowana po usunięciu: {root_html_path}")
 
-                # Odśwież aktualną stronę
-                current_url = self.web_view.url()
-                self.web_view.reload()
-
-                # Komunikat o sukcesie
-                self.log_message("✅ Galeria zaktualizowana po usunięciu pliku")
-
-                # Opcjonalnie: pokaż komunikat w JavaScript
-                success_js = """
-                setTimeout(() => {
-                    if (typeof localStorage !== 'undefined') {
-                        const notification = document.createElement('div');
-                        notification.style.cssText = `
-                            position: fixed; top: 20px; right: 20px; z-index: 9999;
-                            background: var(--success); color: white; padding: 12px 20px;
-                            border-radius: 8px; font-weight: 500; box-shadow: var(--shadow);
-                        `;
-                        notification.textContent = '✅ Plik usunięty, galeria zaktualizowana';
-                        document.body.appendChild(notification);
-                        
-                        setTimeout(() => {
-                            if (notification.parentNode) {
-                                notification.parentNode.removeChild(notification);
-                            }
-                        }, 3000);
-                    }
-                }, 500);
-                """
-                self.web_view.page().runJavaScript(success_js)
-
-            self.gallery_thread = None
+                # Odśwież widok po krótkim opóźnieniu
+                QTimer.singleShot(1000, self.show_gallery_in_app)
+            else:
+                print("❌ Nie udało się przebudować galerii po usunięciu")
 
         except Exception as e:
-            print(f"❌ Błąd gallery_rebuilt_after_deletion: {e}")
+            print(f"❌ Błąd on_gallery_rebuilt_after_deletion: {e}")
+
+    def get_original_folder_from_gallery_path(self, gallery_path):
+        """Konwertuje ścieżkę galerii na oryginalną ścieżkę folderu"""
+        try:
+            if not gallery_path or not os.path.exists(gallery_path):
+                return None
+
+            # Znajdź główny folder galerii
+            gallery_root = self.get_current_gallery_path()
+            if not gallery_root:
+                return None
+
+            # Konwertuj ścieżkę
+            relative_path = os.path.relpath(gallery_path, gallery_root)
+            original_path = os.path.join(self.current_work_directory, relative_path)
+
+            if os.path.exists(original_path):
+                return original_path
+
+            return None
+
+        except Exception as e:
+            print(f"❌ Błąd get_original_folder_from_gallery_path: {e}")
+            return None
+
+    def force_refresh_gallery(self):
+        """Wymusza odświeżenie galerii"""
+        self.rebuild_gallery_silent()
+
+    def handle_js_function_result(self, result):
+        """Obsługuje wynik funkcji JavaScript"""
+        try:
+            if not result:
+                return
+
+            print(f"Wynik funkcji JS: {result}")
+
+        except Exception as e:
+            print(f"❌ Błąd handle_js_function_result: {e}")
+
+    def inject_file_operations_bridge(self):
+        """Wstrzykuje kod JavaScript do obsługi operacji na plikach"""
+        js_code = """
+        window.handleFileOperation = function(operationData) {
+            const operationKey = 'fileOperation_' + Date.now();
+            localStorage.setItem(operationKey, JSON.stringify(operationData));
+            localStorage.setItem('latestFileOperation', operationKey);
+        };
+        """
+        self.web_view.page().runJavaScript(js_code)
+
+    def show_move_files_dialog_python(self):
+        """Pokazuje dialog przenoszenia plików bezpośrednio w Pythonie"""
+        try:
+            if not self.current_work_directory:
+                QMessageBox.warning(self, "Błąd", "Nie wybrano folderu roboczego")
+                return
+
+            # Pobierz zaznaczone pliki przez JavaScript
+            js_code = """
+            (function() {
+                const selected = [];
+                document.querySelectorAll('.gallery-checkbox:checked, .file-checkbox:checked').forEach(cb => {
+                    const item = cb.closest('.gallery-item, li');
+                    if (item) {
+                        selected.push({
+                            name: cb.dataset.file || 'unknown',
+                            path: cb.dataset.path || '',
+                            type: cb.dataset.type || 'unknown'
+                        });
+                    }
+                });
+                return JSON.stringify(selected);
+            })();
+            """
+
+            self.web_view.page().runJavaScript(
+                js_code, self.handle_move_files_selection
+            )
+
+        except Exception as e:
+            print(f"❌ [CRITICAL] Błąd funkcji przenoszenia: {e}")
+            QMessageBox.critical(self, "Błąd", f"Błąd funkcji przenoszenia: {e}")
+
+    def handle_move_files_selection(self, result):
+        """Obsługuje wynik wyboru plików do przeniesienia - ZAWSZE PARY PLIKÓW (archiwum + podgląd)"""
+        try:
+            if not result:
+                print("ℹ️ [INFO] Nie zaznaczono żadnych plików")
+                QMessageBox.information(
+                    self, "Brak plików", "Nie zaznaczono żadnych plików"
+                )
+                return
+
+            selected_files = json.loads(result)
+            if not selected_files:
+                print("ℹ️ [INFO] Nie zaznaczono żadnych plików")
+                QMessageBox.information(
+                    self, "Brak plików", "Nie zaznaczono żadnych plików"
+                )
+                return
+
+            # Wybierz folder docelowy
+            target_folder = QFileDialog.getExistingDirectory(
+                self, "Wybierz folder docelowy", self.current_work_directory
+            )
+            if not target_folder:
+                return
+
+            files_to_move = set()
+            learning_data = self.load_learning_data()
+            archive_exts = [".rar", ".zip", ".7z", ".tar", ".gz", ".bz2", ".xz"]
+            image_exts = [".jpg", ".jpeg", ".png", ".gif", ".bmp", ".webp"]
+
+            for file_info in selected_files:
+                source_path = file_info.get("path", "")
+                if not source_path or not os.path.exists(source_path):
+                    continue
+                files_to_move.add(source_path)
+
+                folder_path = os.path.dirname(source_path)
+                basename = os.path.splitext(os.path.basename(source_path))[0]
+                ext = os.path.splitext(source_path)[1].lower()
+
+                # Szukaj pary niezależnie od typu pliku
+                all_files = [
+                    entry.path for entry in os.scandir(folder_path) if entry.is_file()
+                ]
+                pair_path = None
+                import scanner_logic
+
+                if ext in archive_exts:
+                    # Szukaj podglądu
+                    image_files = [
+                        f
+                        for f in all_files
+                        if os.path.splitext(f)[1].lower() in image_exts
+                    ]
+                    pair_path = scanner_logic.find_matching_preview_for_file(
+                        basename, image_files, learning_data
+                    )
+                elif ext in image_exts:
+                    # Szukaj archiwum
+                    archive_files = [
+                        f
+                        for f in all_files
+                        if os.path.splitext(f)[1].lower() in archive_exts
+                    ]
+                    for arch_path in archive_files:
+                        arch_base = os.path.splitext(os.path.basename(arch_path))[0]
+                        if arch_base.lower() == basename.lower():
+                            pair_path = arch_path
+                            break
+                if pair_path and os.path.exists(pair_path):
+                    files_to_move.add(pair_path)
+                    self.log_message(
+                        f"🔗 Dodano parę do przeniesienia: {os.path.basename(pair_path)}"
+                    )
+
+            moved_count = 0
+            errors = []
+            for source_path in files_to_move:
+                file_name = os.path.basename(source_path)
+                target_path = os.path.join(target_folder, file_name)
+                try:
+                    if os.path.exists(target_path):
+                        print(
+                            f"⚠️ [WARNING] Plik {file_name} już istnieje w folderze docelowym."
+                        )
+                        reply = QMessageBox.question(
+                            self,
+                            "Plik istnieje",
+                            f"Plik {file_name} już istnieje w folderze docelowym. Zastąpić?",
+                            QMessageBox.StandardButton.Yes
+                            | QMessageBox.StandardButton.No,
+                        )
+                        if reply != QMessageBox.StandardButton.Yes:
+                            continue
+                    shutil.move(source_path, target_path)
+                    moved_count += 1
+                    self.log_message(f"✅ Przeniesiono: {file_name}")
+                except Exception as e:
+                    errors.append(f"Błąd przenoszenia {file_name}: {str(e)}")
+                    print(f"❌ [CRITICAL] Błąd przenoszenia {file_name}: {str(e)}")
+
+            if moved_count > 0:
+                print(
+                    f"ℹ️ [INFO] Przeniesiono {moved_count} plików (w tym pary archiwum+podgląd)"
+                )
+                QMessageBox.information(
+                    self,
+                    "Sukces",
+                    f"Przeniesiono {moved_count} plików (w tym pary archiwum+podgląd)",
+                )
+                self.rebuild_gallery_silent()
+            if errors:
+                print("⚠️ [WARNING] Wystąpiły błędy:\n" + "\n".join(errors))
+                QMessageBox.warning(
+                    self, "Błędy", f"Wystąpiły błędy:\n" + "\n".join(errors)
+                )
+        except Exception as e:
+            print(f"❌ [CRITICAL] Błąd przenoszenia plików: {e}")
+            QMessageBox.critical(self, "Błąd", f"Błąd przenoszenia plików: {e}")
+
+    def show_rename_files_dialog_python(self):
+        """Dialog zmiany nazw plików bezpośrednio w Pythonie"""
+        try:
+            # Pobierz zaznaczone pliki
+            js_code = """
+            (function() {
+                const selected = [];
+                document.querySelectorAll('.gallery-checkbox:checked, .file-checkbox:checked').forEach(cb => {
+                    selected.push({
+                        name: cb.dataset.file || 'unknown',
+                        path: cb.dataset.path || '',
+                        type: cb.dataset.type || 'unknown',
+                        basename: cb.dataset.basename || ''
+                    });
+                });
+                return JSON.stringify(selected);
+            })();
+            """
+
+            self.web_view.page().runJavaScript(
+                js_code, self.handle_rename_files_selection
+            )
+
+        except Exception as e:
+            print(f"❌ [CRITICAL] Błąd funkcji zmiany nazw: {e}")
+            QMessageBox.critical(self, "Błąd", f"Błąd funkcji zmiany nazw: {e}")
+
+    def handle_rename_files_selection(self, result):
+        """Obsługuje zmianę nazw wybranych plików - ZAWSZE PARY"""
+        try:
+            if not result:
+                QMessageBox.information(
+                    self, "Brak plików", "Nie zaznaczono żadnych plików"
+                )
+                return
+
+            selected_files = json.loads(result)
+            if not selected_files:
+                QMessageBox.information(
+                    self, "Brak plików", "Nie zaznaczono żadnych plików"
+                )
+                return
+
+            # UPROSZCZONA LOGIKA: jeśli zaznaczono 1 plik, znajdź automatycznie parę
+            if len(selected_files) == 1:
+                selected_file = selected_files[0]
+                source_path = selected_file.get("path", "")
+
+                if not source_path or not os.path.exists(source_path):
+                    QMessageBox.warning(self, "Błąd", "Wybrany plik nie istnieje")
+                    return
+
+                # Znajdź parę dla tego pliku
+                folder_path = os.path.dirname(source_path)
+                basename = os.path.splitext(os.path.basename(source_path))[0]
+
+                # Wczytaj dane uczenia się
+                learning_data = self.load_learning_data()
+
+                # Znajdź wszystkie pliki w folderze
+                all_files = []
+                for entry in os.scandir(folder_path):
+                    if entry.is_file():
+                        all_files.append(entry.path)
+
+                # Znajdź parę
+                pair_file = None
+                if any(
+                    source_path.lower().endswith(ext)
+                    for ext in [".rar", ".zip", ".7z", ".tar", ".gz"]
+                ):
+                    # To archiwum, znajdź obraz
+                    image_files = [
+                        f
+                        for f in all_files
+                        if any(
+                            f.lower().endswith(ext)
+                            for ext in [
+                                ".jpg",
+                                ".jpeg",
+                                ".png",
+                                ".gif",
+                                ".bmp",
+                                ".webp",
+                            ]
+                        )
+                    ]
+                    import scanner_logic
+
+                    pair_file = scanner_logic.find_matching_preview_for_file(
+                        basename, image_files, learning_data
+                    )
+                else:
+                    # To obraz, znajdź archiwum
+                    for file_path in all_files:
+                        file_basename = os.path.splitext(os.path.basename(file_path))[0]
+                        if (
+                            file_basename.lower() == basename.lower()
+                            and file_path != source_path
+                        ):
+                            pair_file = file_path
+                            break
+
+                # Pobierz nową nazwę
+                from PyQt6.QtWidgets import QInputDialog
+
+                current_name = basename
+                new_name, ok = QInputDialog.getText(
+                    self,
+                    "Zmiana nazwy pary plików",
+                    f"Nowa nazwa bazowa dla pary plików (bez rozszerzenia):\nAktualnie: {current_name}",
+                    text=current_name,
+                )
+
+                if not ok or not new_name.strip():
+                    return
+
+                new_name = new_name.strip()
+
+                # Zmień nazwy obu plików
+                files_to_rename = [source_path]
+                if pair_file and os.path.exists(pair_file):
+                    files_to_rename.append(pair_file)
+
+                renamed_count = 0
+                errors = []
+
+                for old_path in files_to_rename:
+                    file_ext = os.path.splitext(old_path)[1]
+                    new_path = os.path.join(
+                        os.path.dirname(old_path), f"{new_name}{file_ext}"
+                    )
+
+                    try:
+                        if os.path.exists(new_path) and new_path != old_path:
+                            reply = QMessageBox.question(
+                                self,
+                                "Plik istnieje",
+                                f"Plik {os.path.basename(new_path)} już istnieje. Zastąpić?",
+                                QMessageBox.StandardButton.Yes
+                                | QMessageBox.StandardButton.No,
+                            )
+                            if reply != QMessageBox.StandardButton.Yes:
+                                continue
+
+                        if old_path != new_path:  # Tylko jeśli nazwa się zmienia
+                            os.rename(old_path, new_path)
+                            renamed_count += 1
+                            self.log_message(
+                                f"✅ Zmieniono nazwę: {os.path.basename(old_path)} → {os.path.basename(new_path)}"
+                            )
+
+                    except Exception as e:
+                        errors.append(
+                            f"Błąd zmiany nazwy {os.path.basename(old_path)}: {str(e)}"
+                        )
+
+                # Pokaż wyniki i odśwież
+                if renamed_count > 0:
+                    QMessageBox.information(
+                        self,
+                        "Sukces",
+                        f"Zmieniono nazwy {renamed_count} plików (para archiwum+podgląd)",
+                    )
+                    self.rebuild_gallery_silent()
+
+                if errors:
+                    QMessageBox.warning(
+                        self, "Błędy", f"Wystąpiły błędy:\n" + "\n".join(errors)
+                    )
+
+            else:
+                QMessageBox.information(
+                    self,
+                    "Nieprawidłowy wybór",
+                    "Zaznacz dokładnie JEDEN plik - para zostanie znaleziona automatycznie",
+                )
+
+        except Exception as e:
+            print(f"❌ [CRITICAL] Błąd zmiany nazw: {e}")
+            QMessageBox.critical(self, "Błąd", f"Błąd zmiany nazw: {e}")
+
+    def show_create_folder_dialog_python(self):
+        """Dialog tworzenia folderu bezpośrednio w Pythonie"""
+        try:
+            from PyQt6.QtWidgets import QInputDialog
+
+            folder_name, ok = QInputDialog.getText(
+                self, "Nowy folder", "Podaj nazwę nowego folderu:"
+            )
+
+            if not ok or not folder_name.strip():
+                return
+
+            folder_name = folder_name.strip()
+
+            # Walidacja nazwy
+            invalid_chars = '<>:"/\\|?*'
+            if any(char in folder_name for char in invalid_chars):
+                QMessageBox.warning(
+                    self,
+                    "Błędna nazwa",
+                    f"Nazwa folderu zawiera niedozwolone znaki: {invalid_chars}",
+                )
+                return
+
+            # Utwórz folder w aktualnej lokalizacji
+            current_folder = self.current_work_directory
+            new_folder_path = os.path.join(current_folder, folder_name)
+
+            if os.path.exists(new_folder_path):
+                QMessageBox.warning(self, "Błąd", "Folder o tej nazwie już istnieje")
+                return
+
+            try:
+                os.makedirs(new_folder_path, exist_ok=True)
+                QMessageBox.information(
+                    self, "Sukces", f"Utworzono folder: {folder_name}"
+                )
+                self.log_message(f"✅ Utworzono folder: {folder_name}")
+
+                # Odśwież galerię
+                self.rebuild_gallery_silent()
+
+            except Exception as e:
+                print(f"❌ [CRITICAL] Nie można utworzyć folderu: {e}")
+                QMessageBox.critical(self, "Błąd", f"Nie można utworzyć folderu: {e}")
+
+        except Exception as e:
+            print(f"❌ [CRITICAL] Błąd tworzenia folderu: {e}")
+            QMessageBox.critical(self, "Błąd", f"Błąd tworzenia folderu: {e}")
+
+    def show_delete_empty_dialog_python(self):
+        """Dialog usuwania pustych folderów - DEFINICJA: folder który może zawierać index.json, ale NIE zawiera plików archiwum i podglądu"""
+        try:
+            if not self.current_work_directory:
+                QMessageBox.warning(self, "Błąd", "Nie wybrano folderu roboczego")
+                return
+
+            reply = QMessageBox.question(
+                self,
+                "Potwierdzenie",
+                f"Czy na pewno chcesz usunąć wszystkie puste foldery w:\n{self.current_work_directory}?\n\n(Pusty folder = folder zawierający tylko index.json lub całkowicie pusty)",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            )
+
+            if reply != QMessageBox.StandardButton.Yes:
+                return
+
+            # NOWA DEFINICJA pustego folderu
+            def is_empty_folder(folder_path):
+                """
+                Folder jest pusty jeśli:
+                - Jest całkowicie pusty, LUB
+                - Zawiera tylko plik index.json (bez plików archiwum i podglądu)
+                """
+                try:
+                    items = os.listdir(folder_path)
+
+                    # Całkowicie pusty
+                    if not items:
+                        return True
+
+                    # Zawiera tylko index.json
+                    if len(items) == 1 and items[0] == "index.json":
+                        return True
+
+                    # Zawiera index.json + inne pliki - sprawdź czy są to tylko metadane
+                    content_files = [item for item in items if item != "index.json"]
+
+                    # Jeśli nie ma innych plików oprócz index.json
+                    if not content_files:
+                        return True
+
+                    # Sprawdź czy są pliki archiwum lub obrazy (content)
+                    for item in content_files:
+                        item_path = os.path.join(folder_path, item)
+                        if os.path.isfile(item_path):
+                            # Sprawdź czy to plik archiwalny lub obraz
+                            ext = os.path.splitext(item)[1].lower()
+                            archive_exts = [
+                                ".rar",
+                                ".zip",
+                                ".7z",
+                                ".tar",
+                                ".gz",
+                                ".bz2",
+                                ".xz",
+                            ]
+                            image_exts = [
+                                ".jpg",
+                                ".jpeg",
+                                ".png",
+                                ".gif",
+                                ".bmp",
+                                ".webp",
+                            ]
+
+                            if ext in archive_exts or ext in image_exts:
+                                return False  # Zawiera content, nie jest pusty
+
+                    # Jeśli doszliśmy tutaj, folder ma tylko pliki pomocnicze/systemowe
+                    return True
+
+                except:
+                    return False
+
+            # Usuń puste foldery
+            deleted_count = 0
+            errors = []
+
+            # Idź od najgłębszych folderów
+            for root, dirs, files in os.walk(
+                self.current_work_directory, topdown=False
+            ):
+                if root == self.current_work_directory:  # Nie usuwaj głównego folderu
+                    continue
+
+                try:
+                    if is_empty_folder(root):
+                        # Dodatkowo sprawdź czy folder nie zawiera podfolderów
+                        if not os.listdir(root) or all(
+                            item == "index.json"
+                            or os.path.isfile(os.path.join(root, item))
+                            for item in os.listdir(root)
+                        ):
+                            import send2trash
+
+                            send2trash.send2trash(root)  # Użyj kosza zamiast os.rmdir
+                            deleted_count += 1
+                            self.log_message(
+                                f"✅ Usunięto pusty folder: {os.path.basename(root)}"
+                            )
+
+                except Exception as e:
+                    errors.append(f"Błąd usuwania {os.path.basename(root)}: {str(e)}")
+
+            # Pokaż wyniki
+            if deleted_count > 0:
+                QMessageBox.information(
+                    self,
+                    "Sukces",
+                    f"Usunięto {deleted_count} pustych folderów do kosza",
+                )
+                self.rebuild_gallery_silent()
+            else:
+                QMessageBox.information(self, "Info", "Nie znaleziono pustych folderów")
+
+            if errors:
+                QMessageBox.warning(
+                    self, "Błędy", f"Wystąpiły błędy:\n" + "\n".join(errors)
+                )
+
+        except Exception as e:
+            print(f"❌ [CRITICAL] Błąd usuwania pustych folderów: {e}")
+            QMessageBox.critical(self, "Błąd", f"Błąd usuwania pustych folderów: {e}")
+
+    def load_learning_data(self):
+        """Wczytuje dane uczenia się z pliku JSON"""
+        try:
+            learning_file = "learning_data.json"
+            if os.path.exists(learning_file):
+                with open(learning_file, "r", encoding="utf-8") as f:
+                    return json.load(f)
+            return []
+        except Exception as e:
+            print(f"❌ [CRITICAL] Błąd wczytywania danych uczenia się: {e}")
+            return []
 
 
 if __name__ == "__main__":

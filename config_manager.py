@@ -13,6 +13,7 @@ DEFAULT_CONFIG = {
     "work_directory": None,
     "preview_size": 400,
     "thumbnail_size": 150,
+    "dark_theme": True,
     "performance": {
         "max_worker_threads": 4,
         "cache_previews": True,

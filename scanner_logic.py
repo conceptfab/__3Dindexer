@@ -6,39 +6,45 @@ import time  # Dodane dla retry mechanism
 from datetime import datetime
 from pathlib import Path
 
+import config_manager
+
 
 # Konfiguracja loggera
-def setup_logger(log_dir="logs"):
-    """Konfiguruje i zwraca logger z zapisem do pliku i konsoli."""
-    # Tworzenie katalogu na logi jeśli nie istnieje
-    log_path = Path(log_dir)
-    log_path.mkdir(exist_ok=True)
+def setup_logger(log_dir="logs", enable_file_logging=None):
+    """Konfiguruje i zwraca logger z opcjonalnym zapisem do pliku."""
+    # Sprawdź ustawienie z konfiguracji jeśli nie podano explicite
+    if enable_file_logging is None:
+        enable_file_logging = config_manager.get_config_value(
+            "enable_file_logging", False
+        )
 
-    # Nazwa pliku logów z timestampem
-    log_file = log_path / f"scanner_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
-
-    # Konfiguracja loggera
     logger = logging.getLogger("scanner")
     logger.setLevel(logging.DEBUG)
+
+    # Wyczyść istniejące handlery
+    logger.handlers.clear()
 
     # Format logów
     formatter = logging.Formatter(
         "%(asctime)s - %(levelname)s - %(message)s", datefmt="%Y-%m-%d %H:%M:%S"
     )
 
-    # Handler dla pliku
-    file_handler = logging.FileHandler(log_file, encoding="utf-8")
-    file_handler.setLevel(logging.DEBUG)
-    file_handler.setFormatter(formatter)
-
-    # Handler dla konsoli
+    # Handler dla konsoli - zawsze aktywny
     console_handler = logging.StreamHandler()
     console_handler.setLevel(logging.INFO)
     console_handler.setFormatter(formatter)
-
-    # Dodanie handlerów do loggera
-    logger.addHandler(file_handler)
     logger.addHandler(console_handler)
+
+    # Handler dla pliku - opcjonalny
+    if enable_file_logging:
+        log_path = Path(log_dir)
+        log_path.mkdir(exist_ok=True)
+        log_file = log_path / f"scanner_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
+
+        file_handler = logging.FileHandler(log_file, encoding="utf-8")
+        file_handler.setLevel(logging.DEBUG)
+        file_handler.setFormatter(formatter)
+        logger.addHandler(file_handler)
 
     return logger
 

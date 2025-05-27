@@ -25,7 +25,9 @@
             class="subfolder-item"
             onclick="window.location.href='{{ sf.link }}'"
           >
-            <div class="folder-icon">📁</div>
+            <div class="folder-icon" data-archive-count="{{ sf.file_count }}">
+              📁
+            </div>
             <a href="{{ sf.link }}">{{ sf.name }}</a>
             <div class="folder-stats">
               <span
@@ -177,6 +179,26 @@
     </div>
 
     <script>
+      // Globalne funkcje
+      function getCurrentFolder() {
+        // Pobierz aktualny folder z URL galerii
+        const currentUrl = window.location.pathname;
+        if (currentUrl.includes('_gallery_cache')) {
+          // Konwertuj ścieżkę galerii na rzeczywistą ścieżkę
+          const parts = currentUrl.split('_gallery_cache/')[1];
+          if (parts) {
+            const galleryPath = parts.replace('/index.html', '');
+            // Zwróć rzeczywistą ścieżkę folderu
+            return '{{ folder_info.path if folder_info else "." }}';
+          }
+        }
+        // Jeśli nie jesteśmy w galerii, zwróć ścieżkę z folder_info
+        return '{{ folder_info.path if folder_info else "." }}';
+      }
+
+      // Dodaj do window dla pewności
+      window.getCurrentFolder = getCurrentFolder;
+
       document.addEventListener('DOMContentLoaded', function () {
         const galleries = [
           document.getElementById('filesWithPreviewsGallery'),
@@ -276,7 +298,7 @@
             img.addEventListener('mouseenter', function () {
               hoverTimeout = setTimeout(() => {
                 showPreview(this.src);
-              }, 500);
+              }, 2000);
             });
 
             img.addEventListener('mouseleave', function () {
@@ -295,7 +317,7 @@
             if (previewSrc) {
               hoverTimeout = setTimeout(() => {
                 showPreview(previewSrc);
-              }, 500);
+              }, 2000);
             }
           });
 
@@ -425,6 +447,155 @@
             }
           });
         }
+
+        // OPERACJE NA PLIKACH
+        let selectedFiles = [];
+
+        function updateSelectedFiles() {
+          selectedFiles = [];
+
+          // Zbierz zaznaczone pliki z galerii
+          document
+            .querySelectorAll('.gallery-checkbox:checked')
+            .forEach((cb) => {
+              selectedFiles.push({
+                type: 'archive_with_preview',
+                name: cb.dataset.file,
+                path: cb.dataset.path,
+                preview:
+                  cb.closest('.gallery-item').querySelector('img')?.src || null,
+              });
+            });
+
+          // Zbierz zaznaczone pliki bez podglądu
+          document
+            .querySelectorAll('.file-checkbox:checked[data-type="archive"]')
+            .forEach((cb) => {
+              selectedFiles.push({
+                type: 'archive',
+                name: cb.dataset.file,
+                path: cb.dataset.path,
+                basename: cb.dataset.basename,
+              });
+            });
+
+          // Zbierz zaznaczone obrazy
+          document
+            .querySelectorAll('.file-checkbox:checked[data-type="image"]')
+            .forEach((cb) => {
+              selectedFiles.push({
+                type: 'image',
+                name: cb.dataset.file,
+                path: cb.dataset.path,
+                basename: cb.dataset.basename,
+              });
+            });
+
+          console.log('Wybrane pliki:', selectedFiles);
+        }
+
+        function showMoveFilesDialog() {
+          updateSelectedFiles();
+
+          if (selectedFiles.length === 0) {
+            alert('Najpierw zaznacz pliki do przeniesienia');
+            return;
+          }
+
+          const moveData = {
+            files: selectedFiles,
+          };
+
+          const moveKey = 'moveFiles_' + Date.now();
+          localStorage.setItem(moveKey, JSON.stringify(moveData));
+          localStorage.setItem('latestMoveFiles', moveKey);
+
+          // Odznacz wszystkie checkboxy
+          document
+            .querySelectorAll('.gallery-checkbox, .file-checkbox')
+            .forEach((cb) => {
+              cb.checked = false;
+            });
+
+          console.log('Zapisano operację przenoszenia:', moveData);
+        }
+
+        function showRenameFilesDialog() {
+          updateSelectedFiles();
+
+          if (selectedFiles.length === 0) {
+            alert('Najpierw zaznacz pliki do zmiany nazwy');
+            return;
+          }
+
+          // Sprawdź czy zaznaczone pliki mogą być zmieniane razem
+          const archiveFiles = selectedFiles.filter(
+            (f) => f.type === 'archive' || f.type === 'archive_with_preview'
+          );
+          const imageFiles = selectedFiles.filter((f) => f.type === 'image');
+
+          if (archiveFiles.length > 0 && imageFiles.length > 0) {
+            // Jeśli są archiwum i obraz, zaproponuj wspólną nazwę
+            const newBaseName = prompt(
+              'Podaj nową wspólną nazwę bazową (bez rozszerzenia):'
+            );
+            if (newBaseName && newBaseName.trim()) {
+              const renameData = {
+                files: selectedFiles,
+                newBaseName: newBaseName.trim(),
+              };
+
+              const renameKey = 'renameFiles_' + Date.now();
+              localStorage.setItem(renameKey, JSON.stringify(renameData));
+              localStorage.setItem('latestRenameFiles', renameKey);
+
+              // Odznacz wszystkie checkboxy
+              document
+                .querySelectorAll('.gallery-checkbox, .file-checkbox')
+                .forEach((cb) => {
+                  cb.checked = false;
+                });
+
+              console.log('Zapisano operację zmiany nazw:', renameData);
+            }
+          } else {
+            alert('Zaznacz archiwum i odpowiadający mu obraz do zmiany nazwy');
+          }
+        }
+
+        function showCreateFolderDialog() {
+          const folderName = prompt('Podaj nazwę nowego folderu:');
+          if (folderName && folderName.trim()) {
+            // Walidacja nazwy folderu
+            const invalidChars = '<>:"/\\|?*';
+            if (
+              invalidChars.split('').some((char) => folderName.includes(char))
+            ) {
+              alert(
+                `Nazwa folderu zawiera niedozwolone znaki: ${invalidChars}`
+              );
+              return;
+            }
+
+            const createData = {
+              parentFolder: getCurrentFolder(),
+              folderName: folderName.trim(),
+            };
+
+            const createKey = 'createFolder_' + Date.now();
+            localStorage.setItem(createKey, JSON.stringify(createData));
+            localStorage.setItem('latestCreateFolder', createKey);
+
+            console.log('Zapisano operację tworzenia folderu:', createData);
+          }
+        }
+
+        // Obsługa checkboxów - aktualizuj stan przy zmianie
+        document.addEventListener('change', function (e) {
+          if (e.target.matches('.gallery-checkbox, .file-checkbox')) {
+            updateSelectedFiles();
+          }
+        });
       });
     </script>
   </body>

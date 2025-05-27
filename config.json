@@ -2,6 +2,9 @@
   "work_directory": "C:\\_cloud\\TRANSPORT",
   "preview_size": 400,
   "thumbnail_size": 150,
+  "dark_theme": true,
+  "show_thumbnails": true,
+  "enable_file_logging": false,
   "performance": {
     "max_worker_threads": 4,
     "cache_previews": true,
@@ -12,16 +15,24 @@
   "ui": {
     "animation_speed": 300,
     "hover_delay": 500,
-    "max_preview_size": 1200
+    "max_preview_size": 1200,
+    "theme": "dark",
+    "show_file_operations": true
   },
   "security": {
     "allowed_extensions": [".jpg", ".jpeg", ".png", ".gif", ".bmp", ".webp"],
     "max_file_size_mb": 50
   },
   "archive_colors": {
-    ".rar": "#ff6b35",
-    ".zip": "#4ecdc4",
+    ".rar": "#434343",
+    ".zip": "#883A1E",
     ".7z": "#a8e6cf",
-    ".tar": "#ffd93d"
+    ".tar": "#ffd93d",
+    ".tar.gz": "#ffb347",
+    ".tar.bz2": "#ff8b94",
+    ".gz": "#c7ceea",
+    ".bz2": "#b4a7d6",
+    ".xz": "#95e1d3",
+    "default": "#6c757d"
   }
 }
