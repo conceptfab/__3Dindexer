@@ -21,12 +21,6 @@
         {{ folder_info.path }}
       </p>
 
-      <div class="gallery-controls">
-        <label for="sizeSlider">Rozmiar kafelków:</label>
-        <input type="range" id="sizeSlider" min="150" max="350" value="200" />
-        <span id="sizeValue">200px</span>
-      </div>
-
       {% if subfolders %}
       <div class="section">
         <h2>📁 Podfoldery ({{ subfolders|length }})</h2>
@@ -135,18 +129,6 @@
         </ul>
       </div>
       {% endif %}
-
-      <div class="section folder-stats">
-        <h3>📊 Statystyki folderu</h3>
-        <p>
-          <strong>Całkowity rozmiar:</strong> {{ folder_info.total_size_readable
-          }}
-        </p>
-        <p><strong>Liczba plików:</strong> {{ folder_info.file_count }}</p>
-        <p>
-          <strong>Liczba podfolderów:</strong> {{ folder_info.subdir_count }}
-        </p>
-      </div>
     </div>
 
     <!-- Modal podglądu -->
@@ -157,8 +139,6 @@
 
     <script>
       document.addEventListener('DOMContentLoaded', function () {
-        const slider = document.getElementById('sizeSlider');
-        const sizeValueDisplay = document.getElementById('sizeValue');
         const galleries = [
           document.getElementById('filesWithPreviewsGallery'),
           document.getElementById('otherImagesGallery'),
@@ -168,23 +148,11 @@
         const previewBackdrop = document.getElementById('previewBackdrop');
         const previewImg = document.getElementById('previewImg');
 
-        // Aktualizacja rozmiaru kafelków
-        function updateTileSize() {
-          const newSize = slider.value + 'px';
-          sizeValueDisplay.textContent = newSize;
-
-          galleries.forEach((gallery) => {
-            gallery.style.gridTemplateColumns = `repeat(auto-fill, minmax(${slider.value}px, 1fr))`;
-          });
-        }
-
         // Podgląd w modalnym oknie
         function showPreview(imageSrc) {
           previewImg.src = imageSrc;
           previewModal.classList.add('show');
           previewBackdrop.classList.add('show');
-
-          // Wyśrodkowanie
           previewModal.style.transform = 'translate(-50%, -50%)';
         }
 
@@ -192,12 +160,6 @@
           previewModal.classList.remove('show');
           previewBackdrop.classList.remove('show');
           previewImg.src = '';
-        }
-
-        // Event listeners
-        if (slider) {
-          slider.addEventListener('input', updateTileSize);
-          updateTileSize();
         }
 
         // Podgląd na hover
@@ -209,7 +171,7 @@
             img.addEventListener('mouseenter', function () {
               hoverTimeout = setTimeout(() => {
                 showPreview(this.src);
-              }, 500); // 500ms opóźnienia
+              }, 500);
             });
 
             img.addEventListener('mouseleave', function () {

@@ -253,14 +253,25 @@ class MainWindow(QMainWindow):
         self.log_output.setMaximumHeight(150)
         bottom_layout.addWidget(self.log_output, 1)
         
-        # Panel statystyk - prawa połowa
+        # Panel statystyk - prawa połowa z CIEMNYM TŁEM
         self.stats_panel = QWidget()
         self.stats_panel.setMaximumHeight(150)
-        self.stats_panel.setStyleSheet("QWidget { background-color: #f0f0f0; border: 1px solid #ccc; }")
+        self.stats_panel.setStyleSheet("""
+            QWidget { 
+                background-color: #21262d; 
+                border: 1px solid #30363d; 
+                border-radius: 8px;
+                color: #f0f6fc;
+            }
+            QLabel {
+                color: #f0f6fc;
+                padding: 2px;
+            }
+        """)
         stats_layout = QVBoxLayout(self.stats_panel)
         
         self.stats_title = QLabel("📊 Statystyki aktualnego folderu")
-        self.stats_title.setStyleSheet("font-weight: bold; font-size: 14px;")
+        self.stats_title.setStyleSheet("font-weight: bold; font-size: 14px; color: #58a6ff;")
         stats_layout.addWidget(self.stats_title)
         
         self.stats_path = QLabel("Ścieżka: -")
@@ -450,12 +461,21 @@ class MainWindow(QMainWindow):
         self.gallery_thread = None
         self.update_gallery_buttons_state()
 
-    def show_gallery_in_app(self): # Zmieniona metoda
+    def show_gallery_in_app(self):
         gallery_index_html = self.get_current_gallery_index_html()
         if gallery_index_html and os.path.exists(gallery_index_html):
             abs_path = os.path.abspath(gallery_index_html)
-            self.web_view.setUrl(QUrl.fromLocalFile(abs_path)) # Ładowanie do QWebEngineView
+            self.web_view.setUrl(QUrl.fromLocalFile(abs_path))
             self.log_message(f"Ładowanie galerii do widoku: {abs_path}")
+            
+            # Ustaw rozmiar kafelków po załadowaniu
+            def apply_tile_size():
+                self.update_tile_size()
+            
+            # Opóźnienie aby strona się załadowała
+            QApplication.processEvents()
+            self.web_view.loadFinished.connect(lambda: self.update_tile_size())
+            
         else:
             self.log_message("Plik główny galerii nie istnieje. Przebuduj galerię.")
             QMessageBox.information(self, "Galeria nie istnieje", "Plik główny galerii (index.html) nie istnieje. Przebuduj galerię.")
@@ -528,6 +548,9 @@ class MainWindow(QMainWindow):
         galleries.forEach(function(gallery) {{
             gallery.style.gridTemplateColumns = 'repeat(auto-fill, minmax({size}px, 1fr))';
         }});
+        
+        // Zapisz ustawienie do localStorage
+        localStorage.setItem('galleryTileSize', '{size}');
         """
         self.web_view.page().runJavaScript(js_code)
 
