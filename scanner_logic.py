@@ -587,6 +587,17 @@ def start_scanning(root_folder_path, progress_callback=None):
         progress_callback("Skanowanie zakończone.")
 
 
+def quick_rescan_folder(folder_path, progress_callback=None):
+    """Szybkie ponowne skanowanie folderu po modyfikacji plików"""
+    logger.info(f"Szybkie ponowne skanowanie: {folder_path}")
+
+    if progress_callback:
+        progress_callback(f"Ponowne skanowanie: {folder_path}")
+
+    # Wykorzystaj istniejącą funkcję process_folder
+    return process_folder(folder_path, progress_callback)
+
+
 if __name__ == "__main__":
     # Testowanie logiki
     test_dir = "/tmp/test_scan_py_no_archive"  # Zmień na istniejący folder testowy

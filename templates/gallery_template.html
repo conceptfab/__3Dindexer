@@ -238,14 +238,27 @@
                 localStorage.setItem(deleteKey, JSON.stringify(deleteData));
                 localStorage.setItem('latestDelete', deleteKey);
 
-                // Usuń element z listy natychmiast (optymistyczne usuwanie)
-                const listItem = this.closest('li');
-                if (listItem) {
-                  listItem.style.opacity = '0.5';
-                  listItem.style.pointerEvents = 'none';
-                  this.textContent = '⏳';
-                  this.disabled = true;
-                }
+                // Wyłącz przycisk i pokaż status
+                this.textContent = '⏳';
+                this.disabled = true;
+                this.style.opacity = '0.5';
+
+                // Pokaż komunikat o przetwarzaniu
+                const statusDiv = document.createElement('div');
+                statusDiv.style.cssText = `
+                  position: fixed; top: 20px; right: 20px; z-index: 9999;
+                  background: var(--warning); color: white; padding: 12px 20px;
+                  border-radius: 8px; font-weight: 500; box-shadow: var(--shadow);
+                `;
+                statusDiv.textContent = `⏳ Usuwanie "${fileName}"...`;
+                document.body.appendChild(statusDiv);
+
+                // Usuń komunikat po 5 sekundach
+                setTimeout(() => {
+                  if (statusDiv.parentNode) {
+                    statusDiv.parentNode.removeChild(statusDiv);
+                  }
+                }, 5000);
               } catch (e) {
                 console.error('Błąd usuwania pliku:', e);
                 alert('Wystąpił błąd podczas usuwania pliku');

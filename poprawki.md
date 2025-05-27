@@ -1,305 +1,183 @@
-Zmiany w pliku main.py
-Funkcja check_for_learning_matches - napraw błędy localStorage
-pythondef check_for_learning_matches(self):
-    """Sprawdza localStorage pod kątem nowych dopasowań do nauki"""
-    js_code = """
-    (function() {
-        try {
-            // Sprawdź czy localStorage jest dostępny
-            if (typeof(Storage) === "undefined" || !localStorage) {
-                console.log('localStorage nie jest dostępny');
-                return null;
-            }
-            
-            const latestMatchKey = localStorage.getItem('latestMatch');
-            if (latestMatchKey) {
-                const matchData = localStorage.getItem(latestMatchKey);
-                if (matchData) {
-                    // Usuń z localStorage
-                    localStorage.removeItem(latestMatchKey);
-                    localStorage.removeItem('latestMatch');
-                    console.log('🔍 Found learning match:', matchData);
-                    return matchData;
-                }
-            }
-            return null;
-        } catch(e) {
-            console.error('Error checking learning matches:', e.name + ': ' + e.message);
-            return null;
-        }
-    })();
-    """
-    
-    self.web_view.page().runJavaScript(js_code, self.handle_learning_match)
-Funkcja check_for_file_deletions - napraw błędy localStorage
-pythondef check_for_file_deletions(self):
-    """Sprawdza localStorage pod kątem żądań usunięcia plików"""
-    js_code = """
-    (function() {
-        try {
-            // Sprawdź czy localStorage jest dostępny
-            if (typeof(Storage) === "undefined" || !localStorage) {
-                console.log('localStorage nie jest dostępny');
-                return null;
-            }
-            
-            const latestDeleteKey = localStorage.getItem('latestDelete');
-            if (latestDeleteKey) {
-                const deleteData = localStorage.getItem(latestDeleteKey);
-                if (deleteData) {
-                    // Usuń z localStorage
-                    localStorage.removeItem(latestDeleteKey);
-                    localStorage.removeItem('latestDelete');
-                    console.log('🗑️ Found delete request:', deleteData);
-                    return deleteData;
-                }
-            }
-            return null;
-        } catch(e) {
-            console.error('Error checking delete requests:', e.name + ': ' + e.message);
-            return null;
-        }
-    })();
-    """
-    
-    self.web_view.page().runJavaScript(js_code, self.handle_file_deletion)
-Dodaj import w gallery_generator.py
-python# Na początku pliku gallery_generator.py dodaj:
-import config_manager
-Napraw funkcję process_single_index_json w gallery_generator.py
-pythondef process_single_index_json(
-    index_json_path,
-    scanned_root_path,
-    gallery_output_base_path,
-    template_env,
-    progress_callback=None,
-):
-    if progress_callback:
-        progress_callback(f"Generowanie galerii dla: {index_json_path}")
-
-    try:
-        with open(index_json_path, "r", encoding="utf-8") as f:
-            data = json.load(f)
-    except Exception as e:
-        if progress_callback:
-            progress_callback(f"Błąd odczytu {index_json_path}: {e}")
-        return None
-
-    current_folder_abs_path = os.path.dirname(index_json_path)
-    relative_path_from_scanned_root = os.path.relpath(
-        current_folder_abs_path, scanned_root_path
-    )
-
-    current_gallery_html_dir = os.path.join(
-        gallery_output_base_path,
-        (
-            relative_path_from_scanned_root
-            if relative_path_from_scanned_root != "."
-            else ""
-        ),
-    )
-    os.makedirs(current_gallery_html_dir, exist_ok=True)
-
-    output_html_file = os.path.join(current_gallery_html_dir, "index.html")
-
-    # Użyj inteligentnego cachowania
-    if os.path.exists(output_html_file) and not should_regenerate_gallery(
-        index_json_path, output_html_file
-    ):
-        if progress_callback:
-            progress_callback(f"Galeria {output_html_file} jest aktualna, pomijam.")
-        return output_html_file
-
-    template = template_env.get_template("gallery_template.html")
-
-    template_data = {
-        "folder_info": data.get("folder_info", {}),
-        "files_with_previews": [],
-        "files_without_previews": [],
-        "other_images": [],
-        "subfolders": [],
-        "current_folder_display_name": (
-            os.path.basename(current_folder_abs_path)
-            if relative_path_from_scanned_root != "."
-            else os.path.basename(scanned_root_path)
-        ),
-        "breadcrumb_parts": [],
-        "depth": 0,
-    }
-
-    gallery_root_name = os.path.basename(scanned_root_path)
-    template_data["breadcrumb_parts"], template_data["depth"] = generate_breadcrumb(
-        relative_path_from_scanned_root, gallery_root_name
-    )
-
-    # Subfolders - dodaj statystyki
-    for entry in os.scandir(current_folder_abs_path):
-        if entry.is_dir():
-            if os.path.exists(os.path.join(entry.path, "index.json")):
-                # Wczytaj statystyki z index.json podfolderu
-                try:
-                    with open(
-                        os.path.join(entry.path, "index.json"), "r", encoding="utf-8"
-                    ) as f:
-                        subfolder_data = json.load(f)
-                        folder_info = subfolder_data.get("folder_info", {})
-                        template_data["subfolders"].append(
-                            {
-                                "name": entry.name,
-                                "link": f"{entry.name}/index.html",
-                                "total_size_readable": folder_info.get(
-                                    "total_size_readable", "0 B"
-                                ),
-                                "file_count": folder_info.get("file_count", 0),
-                                "subdir_count": folder_info.get("subdir_count", 0),
-                            }
-                        )
-                except:
-                    template_data["subfolders"].append(
-                        {
-                            "name": entry.name,
-                            "link": f"{entry.name}/index.html",
-                            "total_size_readable": "0 B",
-                            "file_count": 0,
-                            "subdir_count": 0,
-                        }
-                    )
-
-    # Files with previews - używaj bezpośrednich ścieżek
-    for item in data.get("files_with_previews", []):
-        copied_item = item.copy()
-        copied_item["archive_link"] = f"file:///{item['path_absolute']}"
-        if item.get("preview_path_absolute"):
-            copied_item["preview_relative_path"] = (
-                f"file:///{item['preview_path_absolute']}"
-            )
-
-        # DODAJ KOLOR ARCHIWUM NA PODSTAWIE ROZSZERZENIA
-        file_name = item.get("name", "")
-        file_ext = os.path.splitext(file_name)[1].lower()
-        copied_item["archive_color"] = config_manager.get_archive_color(file_ext)
-
-        template_data["files_with_previews"].append(copied_item)
-
-    # Files without previews
-    for item in data.get("files_without_previews", []):
-        copied_item = item.copy()
-        copied_item["archive_link"] = f"file:///{item['path_absolute']}"
-
-        # DODAJ KOLOR ARCHIWUM
-        file_name = item.get("name", "")
-        file_ext = os.path.splitext(file_name)[1].lower()
-        copied_item["archive_color"] = config_manager.get_archive_color(file_ext)
-
-        template_data["files_without_previews"].append(copied_item)
-
-    # Other images - używaj bezpośrednich ścieżek
-    for item in data.get("other_images", []):
-        copied_item = item.copy()
-        copied_item["file_link"] = f"file:///{item['path_absolute']}"
-        if item.get("path_absolute"):
-            copied_item["image_relative_path"] = f"file:///{item['path_absolute']}"
-        template_data["other_images"].append(copied_item)
-
-    try:
-        html_content = template.render(template_data)
-        with open(output_html_file, "w", encoding="utf-8") as f:
-            f.write(html_content)
-        if progress_callback:
-            progress_callback(f"Zapisano galerię: {output_html_file}")
-    except Exception as e:
-        if progress_callback:
-            progress_callback(f"Błąd generowania HTML dla {index_json_path}: {e}")
-        return None
-
-    return output_html_file
-Dodaj alternatywny mechanizm komunikacji w main.py
-pythondef setup_learning_bridge(self):
-    """Konfiguruje most komunikacyjny z JavaScript dla funkcji uczenia się"""
-    self.web_view.loadFinished.connect(self.inject_learning_bridge)
-
-    # Sprawdź czy localStorage działa, jeśli nie - wyłącz timery
-    test_js = """
-    (function() {
-        try {
-            if (typeof(Storage) !== "undefined" && localStorage) {
-                localStorage.setItem('test', 'test');
-                localStorage.removeItem('test');
-                return true;
-            }
-            return false;
-        } catch(e) {
-            return false;
-        }
-    })();
-    """
-    
-    def handle_storage_test(result):
-        if result:
-            print("✅ localStorage jest dostępny - uruchamiam timery")
-            # Timer do sprawdzania nowych dopasowań co sekundę
-            self.learning_timer = QTimer()
-            self.learning_timer.timeout.connect(self.check_for_learning_matches)
-            self.learning_timer.start(1000)  # Co sekundę
-
-            # Timer do sprawdzania usuwania plików
-            self.delete_timer = QTimer()
-            self.delete_timer.timeout.connect(self.check_for_file_deletions)
-            self.delete_timer.start(1000)  # Co sekundę
-        else:
-            print("❌ localStorage nie jest dostępny - funkcje uczenia wyłączone")
-            self.log_message("⚠️ Funkcje uczenia się wyłączone (brak dostępu do localStorage)")
-    
-    self.web_view.page().runJavaScript(test_js, handle_storage_test)
-Zaktualizuj template JavaScript w templates/gallery_template.html
-javascript// W sekcji <script> zmień obsługę błędów localStorage:
-
-// FUNKCJONALNOŚĆ UCZENIA SIĘ ALGORYTMU
-if (matchBtn) {
-  // Sprawdź dostępność localStorage
-  let localStorageAvailable = false;
-  try {
-    if (typeof(Storage) !== "undefined" && localStorage) {
-      localStorage.setItem('test', 'test');
-      localStorage.removeItem('test');
-      localStorageAvailable = true;
-    }
-  } catch(e) {
-    console.warn('localStorage nie jest dostępny:', e);
-  }
-
-  if (!localStorageAvailable) {
-    matchBtn.style.display = 'none';
-    matchStatus.textContent = '⚠️ Funkcje uczenia się są niedostępne w tym kontekście';
-    return;
-  }
-
-  const checkboxes = document.querySelectorAll('.file-checkbox');
-
-  function updateMatchButton() {
-    const archiveChecked = Array.from(checkboxes).filter(
-      (cb) => cb.checked && cb.dataset.type === 'archive'
-    );
-    const imageChecked = Array.from(checkboxes).filter(
-      (cb) => cb.checked && cb.dataset.type === 'image'
-    );
-
-    // Aktywuj przycisk gdy dokładnie 1 archiwum i 1 obraz jest zaznaczony
-    matchBtn.disabled = !(
-      archiveChecked.length === 1 && imageChecked.length === 1
-    );
-
-    if (matchBtn.disabled) {
-      matchStatus.textContent = '';
-    } else {
-      matchStatus.textContent = `Gotowy do dopasowania: ${archiveChecked[0].dataset.file} ↔ ${imageChecked[0].dataset.file}`;
-    }
-  }
-
-  // Reszta kodu bez zmian...
+Zmiany w pliku templates/gallery_styles.css
+Przeniesienie checkboxa na dół kafelka:
+css/* CHECKBOX W GALERII - PRAWY DOLNY RÓG */
+.gallery-item {
+  position: relative;
 }
 
-// OBSŁUGA USUWANIA PLIKÓW OBRAZÓW - dodaj sprawdzenie localStorage
+.gallery-checkbox {
+  position: absolute;
+  bottom: 8px;
+  right: 8px;
+  width: 18px;
+  height: 18px;
+  z-index: 10;
+  accent-color: var(--accent);
+  cursor: pointer;
+  background: rgba(255, 255, 255, 0.9);
+  border-radius: 3px;
+  border: 1px solid var(--border);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+}
+
+.gallery-checkbox:checked {
+  background: var(--accent);
+}
+
+/* Responsive dla checkboxów */
+@media (max-width: 768px) {
+  .gallery-checkbox {
+    width: 16px;
+    height: 16px;
+    bottom: 6px;
+    right: 6px;
+  }
+}
+Zmiany w pliku main.py
+Poprawiona funkcja obsługi usuwania plików z odświeżaniem:
+pythondef handle_file_deletion(self, result):
+    """Obsługuje żądanie usunięcia pliku"""
+    if result:
+        try:
+            delete_data = json.loads(result)
+            file_path = delete_data.get("filePath", "")
+            file_name = delete_data.get("fileName", "")
+
+            print(f"🗑️ ŻĄDANIE USUNIĘCIA: {file_name} -> {file_path}")
+            self.log_message(f"🗑️ Usuwanie do kosza: {file_name}")
+
+            # Usuń plik do kosza
+            success = self.delete_file_to_trash(file_path)
+
+            if success:
+                self.log_message(f"✅ Plik usunięty do kosza: {file_name}")
+                
+                # NATYCHMIASTOWE ODŚWIEŻENIE - reskanuj folder i przebuduj galerię
+                current_url = self.web_view.url().toLocalFile()
+                if current_url and "_gallery_cache" in current_url:
+                    gallery_folder = os.path.dirname(current_url)
+                    original_folder = self.get_original_folder_from_gallery_path(gallery_folder)
+                    
+                    if original_folder:
+                        print(f"🔄 Ponowne skanowanie po usunięciu: {original_folder}")
+                        # Reskanuj folder natychmiast
+                        QTimer.singleShot(100, lambda: self.rescan_and_rebuild_after_deletion(original_folder))
+                    
+            else:
+                self.log_message(f"❌ Błąd usuwania pliku: {file_name}")
+                # Przywróć element w JavaScript
+                restore_js = f"""
+                const deleteKey = 'deleteFile_restore_' + Date.now();
+                localStorage.setItem(deleteKey, JSON.stringify({{
+                    action: 'restoreFile',
+                    fileName: '{file_name}',
+                    error: 'Nie udało się usunąć pliku'
+                }}));
+                localStorage.setItem('latestRestore', deleteKey);
+                """
+                self.web_view.page().runJavaScript(restore_js)
+
+        except Exception as e:
+            print(f"❌ Błąd przetwarzania usuwania: {e}")
+            self.log_message(f"Błąd usuwania pliku: {e}")
+
+def rescan_and_rebuild_after_deletion(self, folder_path):
+    """Ponownie skanuje folder i przebudowuje galerię po usunięciu pliku"""
+    try:
+        import threading
+        
+        self.log_message(f"🔄 Aktualizacja po usunięciu pliku...")
+        
+        def scan_and_rebuild():
+            try:
+                # 1. Ponownie przeskanuj folder (aktualizuj index.json)
+                scanner_logic.process_folder(
+                    folder_path, 
+                    lambda msg: print(f"📁 RESCAN: {msg}")
+                )
+                
+                # 2. Przebuduj galerię w głównym wątku
+                QTimer.singleShot(200, self.rebuild_gallery_after_deletion)
+                
+            except Exception as e:
+                print(f"❌ Błąd ponownego skanowania: {e}")
+                QTimer.singleShot(100, lambda: self.log_message(f"Błąd aktualizacji: {e}"))
+        
+        # Uruchom w osobnym wątku
+        thread = threading.Thread(target=scan_and_rebuild)
+        thread.daemon = True
+        thread.start()
+        
+    except Exception as e:
+        print(f"❌ Błąd rescan_and_rebuild_after_deletion: {e}")
+        self.log_message(f"Błąd aktualizacji po usunięciu: {e}")
+
+def rebuild_gallery_after_deletion(self):
+    """Przebudowuje galerię po usunięciu pliku"""
+    try:
+        if not self.current_work_directory:
+            return
+            
+        # Sprawdź czy jest już proces
+        if self.gallery_thread and self.gallery_thread.isRunning():
+            return
+            
+        print("🔄 Przebudowa galerii po usunięciu pliku...")
+        self.log_message("🔄 Aktualizacja galerii...")
+        
+        self.gallery_thread = GalleryWorker(
+            self.current_work_directory, self.GALLERY_CACHE_DIR
+        )
+        self.gallery_thread.progress_signal.connect(lambda msg: print(f"🏗️ {msg}"))
+        self.gallery_thread.finished_signal.connect(self.gallery_rebuilt_after_deletion)
+        self.gallery_thread.start()
+        
+    except Exception as e:
+        print(f"❌ Błąd rebuild_gallery_after_deletion: {e}")
+
+def gallery_rebuilt_after_deletion(self, root_html_path):
+    """Obsługuje zakończenie przebudowy galerii po usunięciu"""
+    try:
+        if root_html_path:
+            print(f"✅ Galeria przebudowana po usunięciu: {root_html_path}")
+            
+            # Odśwież aktualną stronę
+            current_url = self.web_view.url()
+            self.web_view.reload()
+            
+            # Komunikat o sukcesie
+            self.log_message("✅ Galeria zaktualizowana po usunięciu pliku")
+            
+            # Opcjonalnie: pokaż komunikat w JavaScript
+            success_js = """
+            setTimeout(() => {
+                if (typeof localStorage !== 'undefined') {
+                    const notification = document.createElement('div');
+                    notification.style.cssText = `
+                        position: fixed; top: 20px; right: 20px; z-index: 9999;
+                        background: var(--success); color: white; padding: 12px 20px;
+                        border-radius: 8px; font-weight: 500; box-shadow: var(--shadow);
+                    `;
+                    notification.textContent = '✅ Plik usunięty, galeria zaktualizowana';
+                    document.body.appendChild(notification);
+                    
+                    setTimeout(() => {
+                        if (notification.parentNode) {
+                            notification.parentNode.removeChild(notification);
+                        }
+                    }, 3000);
+                }
+            }, 500);
+            """
+            self.web_view.page().runJavaScript(success_js)
+            
+        self.gallery_thread = None
+        
+    except Exception as e:
+        print(f"❌ Błąd gallery_rebuilt_after_deletion: {e}")
+Zmiany w pliku templates/gallery_template.html
+Zaktualizowany kod JavaScript dla lepszej obsługi usuwania:
+javascript// OBSŁUGA USUWANIA PLIKÓW OBRAZÓW
 const deleteButtons = document.querySelectorAll('.delete-image-btn');
 deleteButtons.forEach((button) => {
   button.addEventListener('click', function (e) {
@@ -314,7 +192,7 @@ deleteButtons.forEach((button) => {
     ) {
       try {
         // Sprawdź dostępność localStorage
-        if (typeof(Storage) === "undefined" || !localStorage) {
+        if (typeof Storage === 'undefined' || !localStorage) {
           alert('Funkcja usuwania nie jest dostępna w tym kontekście');
           return;
         }
@@ -334,27 +212,70 @@ deleteButtons.forEach((button) => {
         localStorage.setItem(deleteKey, JSON.stringify(deleteData));
         localStorage.setItem('latestDelete', deleteKey);
 
-        // Usuń element z listy natychmiast (optymistyczne usuwanie)
-        const listItem = this.closest('li');
-        if (listItem) {
-          listItem.style.opacity = '0.5';
-          listItem.style.pointerEvents = 'none';
-          this.textContent = '⏳';
-          this.disabled = true;
-        }
-      } catch(e) {
+        // Wyłącz przycisk i pokaż status
+        this.textContent = '⏳';
+        this.disabled = true;
+        this.style.opacity = '0.5';
+        
+        // Pokaż komunikat o przetwarzaniu
+        const statusDiv = document.createElement('div');
+        statusDiv.style.cssText = `
+          position: fixed; top: 20px; right: 20px; z-index: 9999;
+          background: var(--warning); color: white; padding: 12px 20px;
+          border-radius: 8px; font-weight: 500; box-shadow: var(--shadow);
+        `;
+        statusDiv.textContent = `⏳ Usuwanie "${fileName}"...`;
+        document.body.appendChild(statusDiv);
+        
+        // Usuń komunikat po 5 sekundach
+        setTimeout(() => {
+          if (statusDiv.parentNode) {
+            statusDiv.parentNode.removeChild(statusDiv);
+          }
+        }, 5000);
+
+      } catch (e) {
         console.error('Błąd usuwania pliku:', e);
         alert('Wystąpił błąd podczas usuwania pliku');
       }
     }
   });
 });
-Podsumowanie głównych problemów i rozwiązań:
+Zmiany w pliku scanner_logic.py
+Dodaj funkcję do szybkiego ponownego skanowania:
+pythondef quick_rescan_folder(folder_path, progress_callback=None):
+    """Szybkie ponowne skanowanie folderu po modyfikacji plików"""
+    logger.info(f"Szybkie ponowne skanowanie: {folder_path}")
+    
+    if progress_callback:
+        progress_callback(f"Ponowne skanowanie: {folder_path}")
+    
+    # Wykorzystaj istniejącą funkcję process_folder
+    return process_folder(folder_path, progress_callback)
+Podsumowanie zmian
+1. Przeniesienie checkboxów
 
-DOMException w localStorage - Dodano sprawdzenie dostępności localStorage i obsługę błędów
-Brak importu config_manager - Dodano import w gallery_generator.py
-Lepsze komunikaty błędów - JavaScript teraz pokazuje konkretne błędy zamiast [object DOMException]
-Fallback dla niedostępnego localStorage - Aplikacja działa nawet gdy localStorage nie jest dostępny
-Testowanie dostępności - Sprawdzanie czy localStorage działa przed uruchomieniem timerów
+Checkbox teraz znajduje się w prawym dolnym rogu kafelka
+Dodano cień dla lepszej widoczności
+Zachowano responsywność
 
-Te zmiany powinny naprawić błędy JavaScript i przywrócić działanie generowania galerii.
+2. Poprawiona obsługa usuwania
+
+Po usunięciu pliku następuje natychmiastowe ponowne skanowanie folderu (rescan_and_rebuild_after_deletion)
+Aktualizacja pliku index.json przez ponowne wywołanie scanner_logic.process_folder
+Przebudowa galerii HTML z nową strukturą plików
+Automatyczne odświeżenie widoku w przeglądarce
+
+3. Lepsze komunikaty użytkownika
+
+Powiadomienia o postępie usuwania
+Komunikaty o sukcesie operacji
+Obsługa błędów z możliwością przywrócenia stanu
+
+4. Optymalizacja wydajności
+
+Używanie QTimer dla operacji w głównym wątku
+Threading dla operacji I/O
+Sprawdzanie czy proces już nie jest uruchomiony
+
+Te zmiany zapewnią, że po usunięciu pliku galeria zostanie automatycznie zaktualizowana z aktualną strukturą plików, a checkboxy będą umieszczone w prawym dolnym rogu kafelków.

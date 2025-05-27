@@ -1339,8 +1339,27 @@ class MainWindow(QMainWindow):
 
                 if success:
                     self.log_message(f"✅ Plik usunięty do kosza: {file_name}")
-                    # Odśwież galerię po usunięciu
-                    QTimer.singleShot(500, self.refresh_gallery_after_deletion)
+
+                    # NATYCHMIASTOWE ODŚWIEŻENIE - reskanuj folder i przebuduj galerię
+                    current_url = self.web_view.url().toLocalFile()
+                    if current_url and "_gallery_cache" in current_url:
+                        gallery_folder = os.path.dirname(current_url)
+                        original_folder = self.get_original_folder_from_gallery_path(
+                            gallery_folder
+                        )
+
+                        if original_folder:
+                            print(
+                                f"🔄 Ponowne skanowanie po usunięciu: {original_folder}"
+                            )
+                            # Reskanuj folder natychmiast
+                            QTimer.singleShot(
+                                100,
+                                lambda: self.rescan_and_rebuild_after_deletion(
+                                    original_folder
+                                ),
+                            )
+
                 else:
                     self.log_message(f"❌ Błąd usuwania pliku: {file_name}")
                     # Przywróć element w JavaScript
@@ -1384,25 +1403,103 @@ class MainWindow(QMainWindow):
             print(f"❌ Błąd usuwania do kosza: {e}")
             return False
 
-    def refresh_gallery_after_deletion(self):
-        """Odświeża galerię po usunięciu pliku"""
+    def rescan_and_rebuild_after_deletion(self, folder_path):
+        """Ponownie skanuje folder i przebudowuje galerię po usunięciu pliku"""
         try:
-            print("🔄 Odświeżanie galerii po usunięciu pliku")
+            import threading
 
-            # Najpierw reskanuj aktualny folder
-            current_url = self.web_view.url().toLocalFile()
-            if current_url and "_gallery_cache" in current_url:
-                gallery_folder = os.path.dirname(current_url)
-                original_folder = self.get_original_folder_from_gallery_path(
-                    gallery_folder
-                )
+            self.log_message(f"🔄 Aktualizacja po usunięciu pliku...")
 
-                if original_folder:
-                    print(f"🔄 Ponowne skanowanie po usunięciu: {original_folder}")
-                    self.rescan_specific_folder(original_folder)
+            def scan_and_rebuild():
+                try:
+                    # 1. Ponownie przeskanuj folder (aktualizuj index.json)
+                    scanner_logic.process_folder(
+                        folder_path, lambda msg: print(f"📁 RESCAN: {msg}")
+                    )
+
+                    # 2. Przebuduj galerię w głównym wątku
+                    QTimer.singleShot(200, self.rebuild_gallery_after_deletion)
+
+                except Exception as e:
+                    print(f"❌ Błąd ponownego skanowania: {e}")
+                    QTimer.singleShot(
+                        100, lambda: self.log_message(f"Błąd aktualizacji: {e}")
+                    )
+
+            # Uruchom w osobnym wątku
+            thread = threading.Thread(target=scan_and_rebuild)
+            thread.daemon = True
+            thread.start()
 
         except Exception as e:
-            print(f"❌ Błąd odświeżania po usunięciu: {e}")
+            print(f"❌ Błąd rescan_and_rebuild_after_deletion: {e}")
+            self.log_message(f"Błąd aktualizacji po usunięciu: {e}")
+
+    def rebuild_gallery_after_deletion(self):
+        """Przebudowuje galerię po usunięciu pliku"""
+        try:
+            if not self.current_work_directory:
+                return
+
+            # Sprawdź czy jest już proces
+            if self.gallery_thread and self.gallery_thread.isRunning():
+                return
+
+            print("🔄 Przebudowa galerii po usunięciu pliku...")
+            self.log_message("🔄 Aktualizacja galerii...")
+
+            self.gallery_thread = GalleryWorker(
+                self.current_work_directory, self.GALLERY_CACHE_DIR
+            )
+            self.gallery_thread.progress_signal.connect(lambda msg: print(f"🏗️ {msg}"))
+            self.gallery_thread.finished_signal.connect(
+                self.gallery_rebuilt_after_deletion
+            )
+            self.gallery_thread.start()
+
+        except Exception as e:
+            print(f"❌ Błąd rebuild_gallery_after_deletion: {e}")
+
+    def gallery_rebuilt_after_deletion(self, root_html_path):
+        """Obsługuje zakończenie przebudowy galerii po usunięciu"""
+        try:
+            if root_html_path:
+                print(f"✅ Galeria przebudowana po usunięciu: {root_html_path}")
+
+                # Odśwież aktualną stronę
+                current_url = self.web_view.url()
+                self.web_view.reload()
+
+                # Komunikat o sukcesie
+                self.log_message("✅ Galeria zaktualizowana po usunięciu pliku")
+
+                # Opcjonalnie: pokaż komunikat w JavaScript
+                success_js = """
+                setTimeout(() => {
+                    if (typeof localStorage !== 'undefined') {
+                        const notification = document.createElement('div');
+                        notification.style.cssText = `
+                            position: fixed; top: 20px; right: 20px; z-index: 9999;
+                            background: var(--success); color: white; padding: 12px 20px;
+                            border-radius: 8px; font-weight: 500; box-shadow: var(--shadow);
+                        `;
+                        notification.textContent = '✅ Plik usunięty, galeria zaktualizowana';
+                        document.body.appendChild(notification);
+                        
+                        setTimeout(() => {
+                            if (notification.parentNode) {
+                                notification.parentNode.removeChild(notification);
+                            }
+                        }, 3000);
+                    }
+                }, 500);
+                """
+                self.web_view.page().runJavaScript(success_js)
+
+            self.gallery_thread = None
+
+        except Exception as e:
+            print(f"❌ Błąd gallery_rebuilt_after_deletion: {e}")
 
 
 if __name__ == "__main__":
