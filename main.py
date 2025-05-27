@@ -197,18 +197,24 @@ class MainWindow(QMainWindow):
         self.gallery_thread = None
         self.current_gallery_root_html = None
 
+        # DEBUGGING
+        print(f"🔍 INIT - current_work_directory: {self.current_work_directory}")
+
         os.makedirs(self.GALLERY_CACHE_DIR, exist_ok=True)
         self.init_ui()
         self.update_status_label()
         self.update_gallery_buttons_state()
-        self.setup_theme_menu()  # Dodane menu motywów
+        self.setup_theme_menu()
 
         if self.current_work_directory:
+            print(f"🔍 INIT - Sprawdzanie galerii dla: {self.current_work_directory}")
             self.current_gallery_root_html = self.get_current_gallery_index_html()
             if self.current_gallery_root_html and os.path.exists(
                 self.current_gallery_root_html
             ):
                 self.show_gallery_in_app()
+            # TUTAJ ZAWSZE WYWOŁAJ AKTUALIZACJĘ STATYSTYK
+            print(f"🔍 INIT - Wywołuję update_folder_stats()")
             self.update_folder_stats()
 
     def setup_theme_menu(self):
@@ -415,7 +421,7 @@ class MainWindow(QMainWindow):
             }
         """
         )
-        self.refresh_stats_button.clicked.connect(lambda: self.update_folder_stats())
+        self.refresh_stats_button.clicked.connect(self.debug_refresh_stats)
         stats_header_layout.addWidget(self.refresh_stats_button)
 
         stats_layout.addLayout(stats_header_layout)
@@ -496,14 +502,9 @@ class MainWindow(QMainWindow):
 
     def on_webview_url_changed(self, url):
         self.log_message(f"WebView URL changed to: {url.toString()}")
-        # Aktualizuj statystyki dla aktualnego folderu
-        local_path = url.toLocalFile()
-        if local_path and os.path.exists(local_path):
-            folder_path = os.path.dirname(local_path)
-            self.update_folder_stats(folder_path)
-        # Można by tu zaktualizować current_gallery_root_html jeśli nawigujemy w obrębie tej samej galerii
-        # Ale current_gallery_root_html głównie śledzi *główny* index.html wygenerowanej galerii.
-        # Jeśli chcemy śledzić aktualnie wyświetlaną stronę, potrzebna osobna zmienna.
+        # NIE AKTUALIZUJ statystyk na podstawie URL WebView - to może prowadzić do błędów
+        # Statystyki powinny być aktualizowane tylko dla głównego folderu roboczego
+        # lub na żądanie użytkownika
 
     def get_current_gallery_path(self):
         if not self.current_work_directory:
@@ -555,6 +556,7 @@ class MainWindow(QMainWindow):
             self, "Wybierz folder roboczy", initial_dir
         )
         if folder:
+            print(f"🔍 SELECT - Wybrano folder: {folder}")
             self.current_work_directory = folder
             if config_manager.set_work_directory(folder):
                 self.log_message(f"Ustawiono folder roboczy: {folder}")
@@ -565,7 +567,8 @@ class MainWindow(QMainWindow):
             self.current_gallery_root_html = self.get_current_gallery_index_html()
             self.update_gallery_buttons_state()
 
-            # NAJPIERW ZAKTUALIZUJ STATYSTYKI
+            # DEBUGGING I AKTUALIZACJA STATYSTYK
+            print(f"🔍 SELECT - Wywołuję update_folder_stats() dla: {folder}")
             self.update_folder_stats()
 
             # POTEM AUTOMATYCZNE OTWIERANIE GALERII PO WYBORZE FOLDERU
@@ -625,7 +628,10 @@ class MainWindow(QMainWindow):
         self.progress_bar.setVisible(False)
         self.set_buttons_for_processing(False)
 
-        # ZAKTUALIZUJ STATYSTYKI PO ZAKOŃCZENIU SKANOWANIA
+        # DEBUGGING I AKTUALIZACJA STATYSTYK PO ZAKOŃCZENIU SKANOWANIA
+        print(
+            f"🔍 SCAN_FINISHED - Wywołuję update_folder_stats() dla: {self.current_work_directory}"
+        )
         self.log_message("Skanowanie zakończone - aktualizacja statystyk")
         self.update_folder_stats()
 
@@ -837,8 +843,8 @@ class MainWindow(QMainWindow):
 
     def update_folder_stats(self, folder_path=None):
         """Aktualizuje panel statystyki folderu"""
-        if not folder_path:
-            folder_path = self.current_work_directory
+        # ZAWSZE używaj aktualnego folderu roboczego, ignoruj parametr folder_path z WebView
+        folder_path = self.current_work_directory
 
         if not folder_path or not os.path.exists(folder_path):
             self.stats_content.setText("Brak danych")
@@ -875,25 +881,37 @@ class MainWindow(QMainWindow):
                             f"Skanowano: {scan_date}"
                         )
                         self.stats_content.setText(stats_text)
-                        self.log_message(f"Wyświetlono statystyki: {stats_text}")
+                        self.log_message(
+                            f"✅ SUKCES - Wyświetlono statystyki: {stats_text}"
+                        )
                     else:
                         self.stats_content.setText(
-                            "Naciśnij 'Skanuj Foldery' aby zaktualizować statystyki"
+                            "Dane folder_info są puste - uruchom skanowanie"
                         )
                         self.log_message(
-                            f"Brak poprawnych danych folder_info w: {index_json}"
+                            f"❌ BŁĄD - Brak poprawnych danych folder_info w: {index_json}"
                         )
             except json.JSONDecodeError as e:
                 self.stats_content.setText(f"Błąd formatu JSON: {str(e)}")
-                self.log_message(f"Błąd JSON w pliku {index_json}: {str(e)}")
+                self.log_message(f"❌ BŁĄD JSON w pliku {index_json}: {str(e)}")
             except Exception as e:
                 self.stats_content.setText(f"Błąd odczytu: {str(e)}")
-                self.log_message(f"Błąd odczytu pliku {index_json}: {str(e)}")
+                self.log_message(f"❌ BŁĄD odczytu pliku {index_json}: {str(e)}")
         else:
             self.stats_content.setText(
                 "Naciśnij 'Skanuj Foldery' aby zobaczyć statystyki"
             )
-            self.log_message(f"Brak pliku index.json w: {folder_path}")
+            self.log_message(f"❌ BRAK pliku index.json w: {folder_path}")
+
+    def debug_refresh_stats(self):
+        """Debugowa funkcja odświeżania statystyk"""
+        print(
+            f"🔍 REFRESH - Ręczne odświeżenie statystyk dla: {self.current_work_directory}"
+        )
+        self.log_message(
+            f"Ręczne odświeżenie statystyk dla: {self.current_work_directory}"
+        )
+        self.update_folder_stats()
 
 
 if __name__ == "__main__":

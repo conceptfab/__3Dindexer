@@ -185,4 +185,150 @@ Poprawiona logika aktualizacji - statystyki są aktualizowane w odpowiednich mom
 Dodany przycisk odświeżania - możliwość ręcznego odświeżenia statystyk
 Ulepszona obsługa błędów - bardziej precyzyjne komunikaty o błędach
 
-Po zastosowaniu tych zmian statystyki powinny się poprawnie wyświetlać i aktualizować.
+Po zastosowaniu tych zmian statystyki powinny się poprawnie wyświetlać i aktualizować.Retryconceptfab/__3DindexermainGITHUBMnadal kurwo jebana nie ma statystyk wyswietlanych!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!EditWidzę problem! Po przeanalizowaniu kodu, główne problemy to:
+
+Błędna funkcja on_webview_url_changed - nadal próbuje aktualizować statystyki na podstawie URL
+Nieprawidłowe mapowanie ścieżek - funkcja próbuje znaleźć index.json w galerii zamiast w oryginalnym folderze
+
+Zmiany w pliku main.py
+1. CAŁKOWICIE USUŃ aktualizację statystyk z on_webview_url_changed
+pythondef on_webview_url_changed(self, url):
+    self.log_message(f"WebView URL changed to: {url.toString()}")
+    # USUŃ CAŁKOWICIE - to powoduje błędy!
+    # NIE aktualizuj statystyk na podstawie URL WebView
+2. Popraw funkcję update_folder_stats - problem jest w logice
+pythondef update_folder_stats(self, folder_path=None):
+    """Aktualizuje panel statystyki folderu"""
+    # ZAWSZE używaj aktualnego folderu roboczego, ignoruj parametr folder_path z WebView
+    folder_path = self.current_work_directory
+    
+    if not folder_path or not os.path.exists(folder_path):
+        self.stats_content.setText("Brak danych")
+        self.log_message("Brak folderu do sprawdzenia statystyk")
+        return
+
+    # Wczytaj statystyki z index.json jeśli istnieje
+    index_json = os.path.join(folder_path, "index.json")
+    self.log_message(f"Sprawdzanie pliku index.json: {index_json}")
+    
+    if os.path.exists(index_json):
+        try:
+            with open(index_json, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                folder_info = data.get("folder_info", {})
+                
+                self.log_message(f"Wczytano dane z index.json: {list(folder_info.keys()) if folder_info else 'brak folder_info'}")
+                
+                if folder_info and isinstance(folder_info, dict):
+                    # Sprawdź czy mamy wymagane klucze
+                    total_size = folder_info.get('total_size_readable', '0 B')
+                    file_count = folder_info.get('file_count', 0)
+                    subdir_count = folder_info.get('subdir_count', 0)
+                    archive_count = folder_info.get('archive_count', 0)
+                    scan_date = folder_info.get('scan_date', 'Nieznana')
+                    
+                    stats_text = (
+                        f"Rozmiar: {total_size} | "
+                        f"Pliki: {file_count} | "
+                        f"Foldery: {subdir_count} | "
+                        f"Archiwa: {archive_count} | "
+                        f"Skanowano: {scan_date}"
+                    )
+                    self.stats_content.setText(stats_text)
+                    self.log_message(f"✅ SUKCES - Wyświetlono statystyki: {stats_text}")
+                else:
+                    self.stats_content.setText("Dane folder_info są puste - uruchom skanowanie")
+                    self.log_message(f"❌ BŁĄD - Brak poprawnych danych folder_info w: {index_json}")
+        except json.JSONDecodeError as e:
+            self.stats_content.setText(f"Błąd formatu JSON: {str(e)}")
+            self.log_message(f"❌ BŁĄD JSON w pliku {index_json}: {str(e)}")
+        except Exception as e:
+            self.stats_content.setText(f"Błąd odczytu: {str(e)}")
+            self.log_message(f"❌ BŁĄD odczytu pliku {index_json}: {str(e)}")
+    else:
+        self.stats_content.setText("Naciśnij 'Skanuj Foldery' aby zobaczyć statystyki")
+        self.log_message(f"❌ BRAK pliku index.json w: {folder_path}")
+3. Dodaj debugging do __init__
+pythondef __init__(self):
+    super().__init__()
+    self.setWindowTitle("Skaner Folderów i Kreator Galerii")
+    self.setGeometry(100, 100, 1400, 900)
+    self.setMinimumSize(1200, 800)
+
+    self.current_work_directory = config_manager.get_work_directory()
+    self.scanner_thread = None
+    self.gallery_thread = None
+    self.current_gallery_root_html = None
+
+    # DEBUGGING
+    print(f"🔍 INIT - current_work_directory: {self.current_work_directory}")
+
+    os.makedirs(self.GALLERY_CACHE_DIR, exist_ok=True)
+    self.init_ui()
+    self.update_status_label()
+    self.update_gallery_buttons_state()
+    self.setup_theme_menu()
+
+    if self.current_work_directory:
+        print(f"🔍 INIT - Sprawdzanie galerii dla: {self.current_work_directory}")
+        self.current_gallery_root_html = self.get_current_gallery_index_html()
+        if self.current_gallery_root_html and os.path.exists(self.current_gallery_root_html):
+            self.show_gallery_in_app()
+        # TUTAJ ZAWSZE WYWOŁAJ AKTUALIZACJĘ STATYSTYK
+        print(f"🔍 INIT - Wywołuję update_folder_stats()")
+        self.update_folder_stats()
+4. Dodaj debugging do select_work_directory
+pythondef select_work_directory(self):
+    initial_dir = (
+        self.current_work_directory
+        if self.current_work_directory
+        else os.path.expanduser("~")
+    )
+    folder = QFileDialog.getExistingDirectory(
+        self, "Wybierz folder roboczy", initial_dir
+    )
+    if folder:
+        print(f"🔍 SELECT - Wybrano folder: {folder}")
+        self.current_work_directory = folder
+        if config_manager.set_work_directory(folder):
+            self.log_message(f"Ustawiono folder roboczy: {folder}")
+        else:
+            self.log_message(f"Błąd zapisu konfiguracji dla folderu: {folder}")
+
+        self.update_status_label()
+        self.current_gallery_root_html = self.get_current_gallery_index_html()
+        self.update_gallery_buttons_state()
+
+        # DEBUGGING I AKTUALIZACJA STATYSTYK
+        print(f"🔍 SELECT - Wywołuję update_folder_stats() dla: {folder}")
+        self.update_folder_stats()
+
+        # POTEM AUTOMATYCZNE OTWIERANIE GALERII PO WYBORZE FOLDERU
+        if self.current_gallery_root_html and os.path.exists(
+            self.current_gallery_root_html
+        ):
+            self.show_gallery_in_app()
+        else:
+            # Jeśli galeria nie istnieje, automatycznie ją zbuduj
+            self.rebuild_gallery(auto_show_after_build=True)
+5. Dodaj debugging do scan_finished
+pythondef scan_finished(self):
+    self.progress_bar.setVisible(False)
+    self.set_buttons_for_processing(False)
+
+    # DEBUGGING I AKTUALIZACJA STATYSTYK PO ZAKOŃCZENIU SKANOWANIA
+    print(f"🔍 SCAN_FINISHED - Wywołuję update_folder_stats() dla: {self.current_work_directory}")
+    self.log_message("Skanowanie zakończone - aktualizacja statystyk")
+    self.update_folder_stats()
+
+    QMessageBox.information(self, "Sukces", "Skanowanie zakończone pomyślnie!")
+6. Dodaj debugging do przycisku odświeżania
+python# W init_ui(), zmień przycisk odświeżania:
+self.refresh_stats_button.clicked.connect(self.debug_refresh_stats)
+
+# I dodaj nową funkcję:
+def debug_refresh_stats(self):
+    """Debugowa funkcja odświeżania statystyk"""
+    print(f"🔍 REFRESH - Ręczne odświeżenie statystyk dla: {self.current_work_directory}")
+    self.log_message(f"Ręczne odświeżenie statystyk dla: {self.current_work_directory}")
+    self.update_folder_stats()
