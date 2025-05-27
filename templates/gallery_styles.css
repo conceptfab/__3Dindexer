@@ -46,7 +46,10 @@ body {
   min-height: calc(100vh - 40px);
 }
 
-h1,
+h1 {
+  display: none;
+}
+
 h2,
 h3 {
   color: var(--text-primary);
@@ -56,9 +59,6 @@ h3 {
   padding-bottom: 8px;
 }
 
-h1 {
-  font-size: 2rem;
-}
 h2 {
   font-size: 1.5rem;
 }
@@ -264,7 +264,6 @@ h3 {
   flex-direction: column;
   align-items: center;
   gap: 8px;
-  text-decoration: none;
 }
 
 .subfolder-item:hover {
@@ -277,7 +276,6 @@ h3 {
 .folder-icon {
   font-size: 2rem;
   margin-bottom: 8px;
-  cursor: pointer;
 }
 
 .subfolder-item a {
@@ -286,7 +284,6 @@ h3 {
   font-weight: 500;
   font-size: 0.95rem;
   margin-bottom: 8px;
-  cursor: pointer;
 }
 
 .subfolder-item:hover a {
@@ -299,7 +296,6 @@ h3 {
   gap: 4px;
   font-size: 0.8rem;
   color: var(--text-secondary);
-  cursor: pointer;
 }
 
 .folder-stats span {
@@ -378,5 +374,59 @@ a:hover {
     flex-direction: column;
     align-items: stretch;
     gap: 12px;
+  }
+}
+
+/* DWIE KOLUMNY NA DOLE */
+.bottom-columns {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 30px;
+  margin-top: 32px;
+}
+
+.left-column,
+.right-column {
+  /* Każda kolumna zajmuje 50% szerokości */
+}
+
+.image-list {
+  list-style: none;
+  padding: 0;
+  background: var(--bg-tertiary);
+  border-radius: var(--radius);
+  overflow: hidden;
+  border: 1px solid var(--border);
+}
+
+.image-list li {
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--border-muted);
+  transition: var(--transition);
+}
+
+.image-list li:last-child {
+  border-bottom: none;
+}
+
+.image-list li:hover {
+  background: var(--bg-quaternary);
+}
+
+.image-list a {
+  color: var(--text-primary);
+  text-decoration: none;
+  font-weight: 500;
+}
+
+.image-list a:hover {
+  color: var(--accent);
+}
+
+/* RESPONSIVE dla dwóch kolumn */
+@media (max-width: 768px) {
+  .bottom-columns {
+    grid-template-columns: 1fr;
+    gap: 20px;
   }
 }

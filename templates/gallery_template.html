@@ -23,10 +23,7 @@
         <h2>📁 Podfoldery ({{ subfolders|length }})</h2>
         <div class="subfolders-grid">
           {% for sf in subfolders %}
-          <div
-            class="subfolder-item"
-            onclick="window.location.href='{{ sf.link }}'"
-          >
+          <div class="subfolder-item">
             <div class="folder-icon">📁</div>
             <a href="{{ sf.link }}">{{ sf.name }}</a>
             <div class="folder-stats">
