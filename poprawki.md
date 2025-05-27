@@ -1,208 +1,188 @@
 Zmiany w pliku main.py
-python# main.py - ZMODYFIKOWANE CZĘŚCI
+1. Poprawka funkcji on_webview_url_changed
+pythondef on_webview_url_changed(self, url):
+    self.log_message(f"WebView URL changed to: {url.toString()}")
+    # NIE AKTUALIZUJ statystyk na podstawie URL WebView - to może prowadzić do błędów
+    # Statystyki powinny być aktualizowane tylko dla głównego folderu roboczego
+    # lub na żądanie użytkownika
+2. Poprawka funkcji update_folder_stats
+pythondef update_folder_stats(self, folder_path=None):
+    """Aktualizuje panel statystyki folderu"""
+    if not folder_path:
+        folder_path = self.current_work_directory
 
-# Dodaj import na górze pliku
-import qdarktheme  # Nowy import
+    if not folder_path or not os.path.exists(folder_path):
+        self.stats_content.setText("Brak danych")
+        self.log_message("Brak folderu do sprawdzenia statystyk")
+        return
 
-# W funkcji main (na końcu pliku) - ZMIEŃ SEKCJĘ INICJALIZACJI
-if __name__ == "__main__":
-    app = QApplication(sys.argv)
+    # Wczytaj statystyki z index.json jeśli istnieje
+    index_json = os.path.join(folder_path, "index.json")
+    self.log_message(f"Sprawdzanie pliku index.json: {index_json}")
     
-    # ZASTOSUJ CIEMNY MOTYW - DODAJ TO
-    app.setStyleSheet(qdarktheme.load_stylesheet("dark"))
+    if os.path.exists(index_json):
+        try:
+            with open(index_json, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                folder_info = data.get("folder_info", {})
+                
+                self.log_message(f"Wczytano dane z index.json: {list(folder_info.keys()) if folder_info else 'brak folder_info'}")
+                
+                if folder_info and isinstance(folder_info, dict):
+                    # Sprawdź czy mamy wymagane klucze
+                    total_size = folder_info.get('total_size_readable', '0 B')
+                    file_count = folder_info.get('file_count', 0)
+                    subdir_count = folder_info.get('subdir_count', 0)
+                    archive_count = folder_info.get('archive_count', 0)
+                    scan_date = folder_info.get('scan_date', 'Nieznana')
+                    
+                    stats_text = (
+                        f"Rozmiar: {total_size} | "
+                        f"Pliki: {file_count} | "
+                        f"Foldery: {subdir_count} | "
+                        f"Archiwa: {archive_count} | "
+                        f"Skanowano: {scan_date}"
+                    )
+                    self.stats_content.setText(stats_text)
+                    self.log_message(f"Wyświetlono statystyki: {stats_text}")
+                else:
+                    self.stats_content.setText("Naciśnij 'Skanuj Foldery' aby zaktualizować statystyki")
+                    self.log_message(f"Brak poprawnych danych folder_info w: {index_json}")
+        except json.JSONDecodeError as e:
+            self.stats_content.setText(f"Błąd formatu JSON: {str(e)}")
+            self.log_message(f"Błąd JSON w pliku {index_json}: {str(e)}")
+        except Exception as e:
+            self.stats_content.setText(f"Błąd odczytu: {str(e)}")
+            self.log_message(f"Błąd odczytu pliku {index_json}: {str(e)}")
+    else:
+        self.stats_content.setText("Naciśnij 'Skanuj Foldery' aby zobaczyć statystyki")
+        self.log_message(f"Brak pliku index.json w: {folder_path}")
+3. Poprawka funkcji select_work_directory
+pythondef select_work_directory(self):
+    initial_dir = (
+        self.current_work_directory
+        if self.current_work_directory
+        else os.path.expanduser("~")
+    )
+    folder = QFileDialog.getExistingDirectory(
+        self, "Wybierz folder roboczy", initial_dir
+    )
+    if folder:
+        self.current_work_directory = folder
+        if config_manager.set_work_directory(folder):
+            self.log_message(f"Ustawiono folder roboczy: {folder}")
+        else:
+            self.log_message(f"Błąd zapisu konfiguracji dla folderu: {folder}")
+        
+        self.update_status_label()
+        self.current_gallery_root_html = self.get_current_gallery_index_html()
+        self.update_gallery_buttons_state()
+
+        # NAJPIERW ZAKTUALIZUJ STATYSTYKI
+        self.update_folder_stats()
+
+        # POTEM AUTOMATYCZNE OTWIERANIE GALERII PO WYBORZE FOLDERU
+        if self.current_gallery_root_html and os.path.exists(
+            self.current_gallery_root_html
+        ):
+            self.show_gallery_in_app()
+        else:
+            # Jeśli galeria nie istnieje, automatycznie ją zbuduj
+            self.rebuild_gallery(auto_show_after_build=True)
+4. Poprawka funkcji scan_finished
+pythondef scan_finished(self):
+    self.progress_bar.setVisible(False)
+    self.set_buttons_for_processing(False)
     
-    # Opcjonalnie: konfiguracja dla lepszego wyglądu
-    app.setStyle('Fusion')  # Lepszy styl bazowy
+    # ZAKTUALIZUJ STATYSTYKI PO ZAKOŃCZENIU SKANOWANIA
+    self.log_message("Skanowanie zakończone - aktualizacja statystyk")
+    self.update_folder_stats()
     
-    # Reszta kodu pozostaje bez zmian...
-    script_dir = os.path.dirname(os.path.abspath(__file__))
-    templates_path = os.path.join(script_dir, "templates")
+    QMessageBox.information(self, "Sukces", "Skanowanie zakończone pomyślnie!")
+5. Dodaj przycisk odświeżania statystyk
+pythondef init_ui(self):
+    # ... istniejący kod ...
     
-    # ... reszta istniejącego kodu
+    # W sekcji z panelem statystyk, dodaj przycisk odświeżania
+    stats_header_layout = QHBoxLayout()
     
-    main_win = MainWindow()
-    main_win.show()
-    sys.exit(app.exec())
-Ulepszenia stylistyczne w main.py
-pythonclass MainWindow(QMainWindow):
-    def init_ui(self):
-        # ZMIEŃ STYLE PRZYCISKÓW - lepiej wyglądają z qdarktheme
-        
-        # Zamiast kolorowych przycisków, użyj bardziej subtelnych stylów
-        self.select_folder_button = QPushButton("📁 Wybierz Folder")
-        # USUŃ lub zmień stary styl:
-        # self.select_folder_button.setStyleSheet("QPushButton { background-color: #4CAF50; color: white; font-weight: bold; }")
-        # DODAJ nowy, subtelny styl:
-        self.select_folder_button.setStyleSheet("""
-            QPushButton {
-                font-weight: bold;
-                padding: 8px 16px;
-                border-radius: 6px;
-            }
-            QPushButton:hover {
-                background-color: #2d5aa0;
-            }
-        """)
-        
-        # Podobnie dla innych przycisków - usuń stare style lub zmień na subtelniejsze
-        self.start_scan_button = QPushButton("🔍 Skanuj Foldery")
-        self.start_scan_button.setStyleSheet("""
-            QPushButton {
-                padding: 8px 16px;
-                border-radius: 6px;
-                font-weight: 500;
-            }
-        """)
-        
-        self.rebuild_gallery_button = QPushButton("🔄 Przebuduj Galerię")
-        self.rebuild_gallery_button.setStyleSheet("""
-            QPushButton {
-                padding: 8px 16px;
-                border-radius: 6px;
-                font-weight: 500;
-            }
-        """)
-        
-        self.open_gallery_button = QPushButton("👁️ Pokaż Galerię")
-        self.open_gallery_button.setStyleSheet("""
-            QPushButton {
-                padding: 8px 16px;
-                border-radius: 6px;
-                font-weight: 500;
-            }
-        """)
-        
-        self.clear_gallery_cache_button = QPushButton("🗑️ Wyczyść Cache")
-        self.clear_gallery_cache_button.setStyleSheet("""
-            QPushButton {
-                padding: 8px 16px;
-                border-radius: 6px;
-                font-weight: 500;
-            }
-            QPushButton:hover {
-                background-color: #c62d42;
-            }
-        """)
-        
-        self.cancel_button = QPushButton("❌ Anuluj")
-        self.cancel_button.setStyleSheet("""
-            QPushButton {
-                padding: 8px 16px;
-                border-radius: 6px;
-                font-weight: 500;
-            }
-        """)
-        
-        # ULEPSZONY panel statystyk - dostosowany do qdarktheme
-        self.stats_panel.setStyleSheet("""
-            QWidget { 
-                background-color: rgba(255, 255, 255, 0.05);
-                border: 1px solid rgba(255, 255, 255, 0.1);
-                border-radius: 8px;
-                padding: 8px;
-            }
-            QLabel {
-                color: #ffffff;
-                padding: 4px;
-                background: transparent;
-            }
-        """)
-        
-        self.stats_title.setStyleSheet("""
-            font-weight: bold; 
-            font-size: 14px; 
-            color: #3daee9;
+    self.stats_title = QLabel("Statystyki folderu")
+    self.stats_title.setStyleSheet("""
+        font-weight: bold; 
+        font-size: 14px; 
+        color: #3daee9;
+        background: transparent;
+    """)
+    stats_header_layout.addWidget(self.stats_title)
+    
+    # Dodaj przycisk odświeżania statystyk
+    self.refresh_stats_button = QPushButton("🔄")
+    self.refresh_stats_button.setToolTip("Odśwież statystyki")
+    self.refresh_stats_button.setFixedSize(24, 24)
+    self.refresh_stats_button.setStyleSheet("""
+        QPushButton {
+            border: none;
             background: transparent;
-        """)
-Dodaj do requirements.txt lub zainstaluj
-bashpip install pyqtdarktheme
-Opcjonalne: Konfiguracja motywów
-python# W main.py - dodaj funkcję przełączania motywów (opcjonalne)
-class MainWindow(QMainWindow):
-    def __init__(self):
-        super().__init__()
-        # ... istniejący kod ...
-        
-        # Dodaj do menu opcję przełączania motywów
-        self.setup_theme_menu()
+            font-size: 12px;
+            padding: 2px;
+            border-radius: 12px;
+        }
+        QPushButton:hover {
+            background: rgba(61, 174, 233, 0.2);
+        }
+    """)
+    self.refresh_stats_button.clicked.connect(lambda: self.update_folder_stats())
+    stats_header_layout.addWidget(self.refresh_stats_button)
     
-    def setup_theme_menu(self):
-        """Dodaje menu przełączania motywów."""
-        menubar = self.menuBar()
-        theme_menu = menubar.addMenu("Motyw")
-        
-        dark_action = theme_menu.addAction("Ciemny")
-        light_action = theme_menu.addAction("Jasny")
-        auto_action = theme_menu.addAction("Automatyczny")
-        
-        dark_action.triggered.connect(lambda: self.change_theme("dark"))
-        light_action.triggered.connect(lambda: self.change_theme("light"))
-        auto_action.triggered.connect(lambda: self.change_theme("auto"))
+    stats_layout.addLayout(stats_header_layout)
     
-    def change_theme(self, theme):
-        """Zmienia motyw aplikacji."""
-        QApplication.instance().setStyleSheet(qdarktheme.load_stylesheet(theme))
-        # Zapisz wybór do konfiguracji
-        config_manager.set_config_value("ui.theme", theme)
-Aktualizacja config.json
-json{
-    "work_directory": "W:\\3Dsky\\ARCHITECTURE",
-    "preview_size": 400,
-    "thumbnail_size": 150,
-    "dark_theme": true,
-    "performance": {
-        "max_worker_threads": 4,
-        "cache_previews": true,
-        "lazy_loading": true,
-        "max_cache_size_mb": 1024,
-        "cache_ttl_hours": 24
-    },
-    "ui": {
-        "animation_speed": 300,
-        "hover_delay": 500,
-        "max_preview_size": 1200,
-        "theme": "dark"
-    },
-    "security": {
-        "allowed_extensions": [
-            ".jpg",
-            ".jpeg",
-            ".png",
-            ".gif",
-            ".bmp",
-            ".webp"
-        ],
-        "max_file_size_mb": 50
-    }
-}
-Zminimalizowany progress bar styling
-python# W init_ui(), dla progress bara
-self.progress_bar = QProgressBar()
-self.progress_bar.setVisible(False)
-self.progress_bar.setStyleSheet("""
-    QProgressBar {
-        border-radius: 4px;
-        text-align: center;
-        height: 20px;
-    }
-    QProgressBar::chunk {
-        border-radius: 4px;
-        background-color: #3daee9;
-    }
-""")
-Korzyści z pyqtdarktheme:
-✅ Profesjonalny wygląd - aplikacja wygląda nowocześnie
-✅ Konsystentność - wszystkie elementy Qt mają spójny styl
-✅ Mniej custom CSS - nie musisz stylować każdego elementu
-✅ Automatic detection - może automatycznie wykrywać motyw systemu
-✅ Cross-platform - działa identycznie na Windows/Linux/macOS
-Rezultat:
-Twoja aplikacja będzie miała:
+    # ... reszta kodu stats_panel ...
+Zmiany w pliku scanner_logic.py
+Poprawka funkcji get_folder_stats - dodanie lepszego debugowania
+pythondef get_folder_stats(folder_path):
+    """Zbiera podstawowe statystyki dotyczące folderu."""
+    logger.info(f"Zbieranie statystyk dla folderu: {folder_path}")
+    total_size_bytes = 0
+    file_count = 0
+    subdir_count = 0
+    archive_count = 0
 
-Profesjonalny ciemny motyw
-Lepiej wyglądające przyciski i kontrolki
-Spójne kolory w całej aplikacji
-Zachowaną funkcjonalność HTML/CSS galerii
-Możliwość przełączania motywów
+    try:
+        for entry in os.scandir(folder_path):
+            if entry.is_file() and entry.name.lower() != "index.json":
+                try:
+                    stat = entry.stat()
+                    file_size = stat.st_size
+                    file_count += 1
+                    total_size_bytes += file_size
+                    archive_count += 1
+                    logger.debug(f"Znaleziono plik: {entry.name} ({file_size} bajtów)")
+                except OSError as e:
+                    logger.error(f"Błąd dostępu do pliku {entry.name}: {e}")
+            elif entry.is_dir():
+                subdir_count += 1
+                logger.debug(f"Znaleziono podfolder: {entry.name}")
+    except OSError as e:
+        logger.error(f"Błąd podczas skanowania folderu {folder_path}: {e}")
 
-Motyw będzie idealnie komponować się z Twoim ciemnym motywem galerii HTML! 🎨
+    # Przygotuj podstawowe statystyki
+    stats = {
+        "path": os.path.abspath(folder_path),
+        "total_size_bytes": total_size_bytes,
+        "total_size_readable": get_file_size_readable(total_size_bytes),
+        "file_count": file_count,
+        "subdir_count": subdir_count,
+        "archive_count": archive_count,
+        "scan_date": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+    }
+
+    logger.info(f"Statystyki folderu {folder_path}: {stats}")
+    return stats
+Te poprawki powinny rozwiązać problem z wyświetlaniem statystyk folderu:
+
+Lepsze debugowanie - więcej komunikatów w logach
+Poprawiona logika aktualizacji - statystyki są aktualizowane w odpowiednich momentach
+Dodany przycisk odświeżania - możliwość ręcznego odświeżenia statystyk
+Ulepszona obsługa błędów - bardziej precyzyjne komunikaty o błędach
+
+Po zastosowaniu tych zmian statystyki powinny się poprawnie wyświetlać i aktualizować.

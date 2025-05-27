@@ -384,6 +384,8 @@ class MainWindow(QMainWindow):
         )
         stats_layout = QVBoxLayout(self.stats_panel)
 
+        stats_header_layout = QHBoxLayout()
+
         self.stats_title = QLabel("Statystyki folderu")
         self.stats_title.setStyleSheet(
             """
@@ -393,7 +395,30 @@ class MainWindow(QMainWindow):
             background: transparent;
         """
         )
-        stats_layout.addWidget(self.stats_title)
+        stats_header_layout.addWidget(self.stats_title)
+
+        # Dodaj przycisk odświeżania statystyk
+        self.refresh_stats_button = QPushButton("🔄")
+        self.refresh_stats_button.setToolTip("Odśwież statystyki")
+        self.refresh_stats_button.setFixedSize(24, 24)
+        self.refresh_stats_button.setStyleSheet(
+            """
+            QPushButton {
+                border: none;
+                background: transparent;
+                font-size: 12px;
+                padding: 2px;
+                border-radius: 12px;
+            }
+            QPushButton:hover {
+                background: rgba(61, 174, 233, 0.2);
+            }
+        """
+        )
+        self.refresh_stats_button.clicked.connect(lambda: self.update_folder_stats())
+        stats_header_layout.addWidget(self.refresh_stats_button)
+
+        stats_layout.addLayout(stats_header_layout)
 
         self.stats_content = QLabel("Brak danych")
         stats_layout.addWidget(self.stats_content)
@@ -535,11 +560,15 @@ class MainWindow(QMainWindow):
                 self.log_message(f"Ustawiono folder roboczy: {folder}")
             else:
                 self.log_message(f"Błąd zapisu konfiguracji dla folderu: {folder}")
+
             self.update_status_label()
             self.current_gallery_root_html = self.get_current_gallery_index_html()
             self.update_gallery_buttons_state()
 
-            # AUTOMATYCZNE OTWIERANIE GALERII PO WYBORZE FOLDERU
+            # NAJPIERW ZAKTUALIZUJ STATYSTYKI
+            self.update_folder_stats()
+
+            # POTEM AUTOMATYCZNE OTWIERANIE GALERII PO WYBORZE FOLDERU
             if self.current_gallery_root_html and os.path.exists(
                 self.current_gallery_root_html
             ):
@@ -547,7 +576,6 @@ class MainWindow(QMainWindow):
             else:
                 # Jeśli galeria nie istnieje, automatycznie ją zbuduj
                 self.rebuild_gallery(auto_show_after_build=True)
-            self.update_folder_stats()
 
     def log_message(self, message):
         """Wyświetla komunikat na pasku statusu"""
@@ -596,9 +624,11 @@ class MainWindow(QMainWindow):
     def scan_finished(self):
         self.progress_bar.setVisible(False)
         self.set_buttons_for_processing(False)
-        # Aktualizuj statystyki dla aktualnego folderu
-        if self.current_work_directory:
-            self.update_folder_stats(self.current_work_directory)
+
+        # ZAKTUALIZUJ STATYSTYKI PO ZAKOŃCZENIU SKANOWANIA
+        self.log_message("Skanowanie zakończone - aktualizacja statystyk")
+        self.update_folder_stats()
+
         QMessageBox.information(self, "Sukces", "Skanowanie zakończone pomyślnie!")
 
     def rebuild_gallery(self, auto_show_after_build=True):  # Dodano argument
@@ -812,29 +842,50 @@ class MainWindow(QMainWindow):
 
         if not folder_path or not os.path.exists(folder_path):
             self.stats_content.setText("Brak danych")
+            self.log_message("Brak folderu do sprawdzenia statystyk")
             return
 
         # Wczytaj statystyki z index.json jeśli istnieje
         index_json = os.path.join(folder_path, "index.json")
+        self.log_message(f"Sprawdzanie pliku index.json: {index_json}")
+
         if os.path.exists(index_json):
             try:
                 with open(index_json, "r", encoding="utf-8") as f:
                     data = json.load(f)
                     folder_info = data.get("folder_info", {})
+
+                    self.log_message(
+                        f"Wczytano dane z index.json: {list(folder_info.keys()) if folder_info else 'brak folder_info'}"
+                    )
+
                     if folder_info and isinstance(folder_info, dict):
+                        # Sprawdź czy mamy wymagane klucze
+                        total_size = folder_info.get("total_size_readable", "0 B")
+                        file_count = folder_info.get("file_count", 0)
+                        subdir_count = folder_info.get("subdir_count", 0)
+                        archive_count = folder_info.get("archive_count", 0)
+                        scan_date = folder_info.get("scan_date", "Nieznana")
+
                         stats_text = (
-                            f"Rozmiar: {folder_info.get('total_size_readable', '0 B')} | "
-                            f"Pliki: {folder_info.get('file_count', 0)} | "
-                            f"Foldery: {folder_info.get('subdir_count', 0)} | "
-                            f"Archiwa: {folder_info.get('archive_count', 0)}"
+                            f"Rozmiar: {total_size} | "
+                            f"Pliki: {file_count} | "
+                            f"Foldery: {subdir_count} | "
+                            f"Archiwa: {archive_count} | "
+                            f"Skanowano: {scan_date}"
                         )
                         self.stats_content.setText(stats_text)
-                        self.log_message(f"Wczytano statystyki z: {index_json}")
+                        self.log_message(f"Wyświetlono statystyki: {stats_text}")
                     else:
                         self.stats_content.setText(
                             "Naciśnij 'Skanuj Foldery' aby zaktualizować statystyki"
                         )
-                        self.log_message(f"Brak statystyk w pliku: {index_json}")
+                        self.log_message(
+                            f"Brak poprawnych danych folder_info w: {index_json}"
+                        )
+            except json.JSONDecodeError as e:
+                self.stats_content.setText(f"Błąd formatu JSON: {str(e)}")
+                self.log_message(f"Błąd JSON w pliku {index_json}: {str(e)}")
             except Exception as e:
                 self.stats_content.setText(f"Błąd odczytu: {str(e)}")
                 self.log_message(f"Błąd odczytu pliku {index_json}: {str(e)}")

@@ -83,7 +83,7 @@ def get_folder_stats(folder_path):
                     file_count += 1
                     total_size_bytes += file_size
                     archive_count += 1
-                    logger.debug(f"Znaleziono plik: {entry.name}")
+                    logger.debug(f"Znaleziono plik: {entry.name} ({file_size} bajtów)")
                 except OSError as e:
                     logger.error(f"Błąd dostępu do pliku {entry.name}: {e}")
             elif entry.is_dir():
@@ -103,6 +103,7 @@ def get_folder_stats(folder_path):
         "scan_date": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
     }
 
+    logger.info(f"Statystyki folderu {folder_path}: {stats}")
     return stats
 
 
