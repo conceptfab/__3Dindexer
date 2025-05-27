@@ -6,6 +6,8 @@ import shutil
 
 from jinja2 import Environment, FileSystemLoader
 
+import config_manager
+
 
 def sanitize_path_for_foldername(path_str):
     """Sanitizes a path string to be used as a folder name."""

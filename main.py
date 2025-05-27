@@ -1056,6 +1056,12 @@ class MainWindow(QMainWindow):
         js_code = """
         (function() {
             try {
+                // Sprawdź czy localStorage jest dostępny
+                if (typeof(Storage) === "undefined" || !localStorage) {
+                    console.log('localStorage nie jest dostępny');
+                    return null;
+                }
+                
                 const latestMatchKey = localStorage.getItem('latestMatch');
                 if (latestMatchKey) {
                     const matchData = localStorage.getItem(latestMatchKey);
@@ -1069,7 +1075,7 @@ class MainWindow(QMainWindow):
                 }
                 return null;
             } catch(e) {
-                console.error('Error checking learning matches:', e);
+                console.error('Error checking learning matches:', e.name + ': ' + e.message);
                 return null;
             }
         })();
@@ -1290,6 +1296,12 @@ class MainWindow(QMainWindow):
         js_code = """
         (function() {
             try {
+                // Sprawdź czy localStorage jest dostępny
+                if (typeof(Storage) === "undefined" || !localStorage) {
+                    console.log('localStorage nie jest dostępny');
+                    return null;
+                }
+                
                 const latestDeleteKey = localStorage.getItem('latestDelete');
                 if (latestDeleteKey) {
                     const deleteData = localStorage.getItem(latestDeleteKey);
@@ -1303,7 +1315,7 @@ class MainWindow(QMainWindow):
                 }
                 return null;
             } catch(e) {
-                console.error('Error checking delete requests:', e);
+                console.error('Error checking delete requests:', e.name + ': ' + e.message);
                 return null;
             }
         })();

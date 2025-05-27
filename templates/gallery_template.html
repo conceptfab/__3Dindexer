@@ -216,28 +216,39 @@
             if (
               confirm(`Czy na pewno chcesz usunąć plik "${fileName}" do kosza?`)
             ) {
-              // Komunikacja z PyQt przez localStorage
-              const deleteData = {
-                action: 'deleteFile',
-                filePath: filePath,
-                fileName: fileName,
-                timestamp: new Date().toISOString(),
-              };
+              try {
+                // Sprawdź dostępność localStorage
+                if (typeof Storage === 'undefined' || !localStorage) {
+                  alert('Funkcja usuwania nie jest dostępna w tym kontekście');
+                  return;
+                }
 
-              console.log('🗑️ Usuwanie pliku:', deleteData);
+                // Komunikacja z PyQt przez localStorage
+                const deleteData = {
+                  action: 'deleteFile',
+                  filePath: filePath,
+                  fileName: fileName,
+                  timestamp: new Date().toISOString(),
+                };
 
-              // Zapisz do localStorage
-              const deleteKey = 'deleteFile_' + Date.now();
-              localStorage.setItem(deleteKey, JSON.stringify(deleteData));
-              localStorage.setItem('latestDelete', deleteKey);
+                console.log('🗑️ Usuwanie pliku:', deleteData);
 
-              // Usuń element z listy natychmiast (optymistyczne usuwanie)
-              const listItem = this.closest('li');
-              if (listItem) {
-                listItem.style.opacity = '0.5';
-                listItem.style.pointerEvents = 'none';
-                this.textContent = '⏳';
-                this.disabled = true;
+                // Zapisz do localStorage
+                const deleteKey = 'deleteFile_' + Date.now();
+                localStorage.setItem(deleteKey, JSON.stringify(deleteData));
+                localStorage.setItem('latestDelete', deleteKey);
+
+                // Usuń element z listy natychmiast (optymistyczne usuwanie)
+                const listItem = this.closest('li');
+                if (listItem) {
+                  listItem.style.opacity = '0.5';
+                  listItem.style.pointerEvents = 'none';
+                  this.textContent = '⏳';
+                  this.disabled = true;
+                }
+              } catch (e) {
+                console.error('Błąd usuwania pliku:', e);
+                alert('Wystąpił błąd podczas usuwania pliku');
               }
             }
           });
@@ -292,6 +303,25 @@
 
         // FUNKCJONALNOŚĆ UCZENIA SIĘ ALGORYTMU
         if (matchBtn) {
+          // Sprawdź dostępność localStorage
+          let localStorageAvailable = false;
+          try {
+            if (typeof Storage !== 'undefined' && localStorage) {
+              localStorage.setItem('test', 'test');
+              localStorage.removeItem('test');
+              localStorageAvailable = true;
+            }
+          } catch (e) {
+            console.warn('localStorage nie jest dostępny:', e);
+          }
+
+          if (!localStorageAvailable) {
+            matchBtn.style.display = 'none';
+            matchStatus.textContent =
+              '⚠️ Funkcje uczenia się są niedostępne w tym kontekście';
+            return;
+          }
+
           const checkboxes = document.querySelectorAll('.file-checkbox');
 
           function updateMatchButton() {
