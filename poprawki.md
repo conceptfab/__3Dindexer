@@ -1,3 +1,110 @@
+Zmiany w pliku config.json
+json{
+    "work_directory": "C:\\_cloud\\TRANSPORT",
+    "preview_size": 400,
+    "thumbnail_size": 150,
+    "dark_theme": true,
+    "performance": {
+        "max_worker_threads": 4,
+        "cache_previews": true,
+        "lazy_loading": true,
+        "max_cache_size_mb": 1024,
+        "cache_ttl_hours": 24
+    },
+    "ui": {
+        "animation_speed": 300,
+        "hover_delay": 500,
+        "max_preview_size": 1200
+    },
+    "security": {
+        "allowed_extensions": [
+            ".jpg",
+            ".jpeg",
+            ".png",
+            ".gif",
+            ".bmp",
+            ".webp"
+        ],
+        "max_file_size_mb": 50
+    },
+    "archive_colors": {
+        ".rar": "#ff6b35",
+        ".zip": "#4ecdc4",
+        ".7z": "#a8e6cf",
+        ".tar": "#ffd93d",
+        ".tar.gz": "#ffb347",
+        ".tar.bz2": "#ff8b94",
+        ".gz": "#c7ceea",
+        ".bz2": "#b4a7d6",
+        ".xz": "#95e1d3",
+        "default": "#6c757d"
+    }
+}
+Zmiany w pliku config_manager.py - funkcja get_archive_color
+pythondef get_archive_color(file_extension):
+    """Pobiera kolor dla danego typu archiwum."""
+    try:
+        colors = get_config_value("archive_colors", {})
+        # Konwertuj rozszerzenie na małe litery dla porównania
+        ext_lower = file_extension.lower() if file_extension else ""
+        
+        # Sprawdź czy mamy kolor dla tego rozszerzenia
+        if ext_lower in colors:
+            return colors[ext_lower]
+        
+        # Sprawdź specjalne przypadki (tar.gz, tar.bz2)
+        if ext_lower.endswith('.tar.gz'):
+            return colors.get('.tar.gz', colors.get('default', '#6c757d'))
+        elif ext_lower.endswith('.tar.bz2'):
+            return colors.get('.tar.bz2', colors.get('default', '#6c757d'))
+        
+        return colors.get('default', '#6c757d')
+    except Exception as e:
+        logger.error(f"Błąd pobierania koloru archiwum: {e}")
+        return '#6c757d'
+
+def get_archive_colors():
+    """Pobiera wszystkie kolory archiwów jako słownik."""
+    return get_config_value("archive_colors", {})
+Zmiany w pliku gallery_generator.py - funkcja process_single_index_json
+pythondef process_single_index_json(
+    index_json_path,
+    scanned_root_path,
+    gallery_output_base_path,
+    template_env,
+    progress_callback=None,
+):
+    # ... existing code until template_data setup ...
+
+    # Files with previews - używaj bezpośrednich ścieżek
+    for item in data.get("files_with_previews", []):
+        copied_item = item.copy()
+        copied_item["archive_link"] = f"file:///{item['path_absolute']}"
+        if item.get("preview_path_absolute"):
+            copied_item["preview_relative_path"] = (
+                f"file:///{item['preview_path_absolute']}"
+            )
+        
+        # DODAJ KOLOR ARCHIWUM NA PODSTAWIE ROZSZERZENIA
+        file_name = item.get('name', '')
+        file_ext = os.path.splitext(file_name)[1].lower()
+        copied_item["archive_color"] = config_manager.get_archive_color(file_ext)
+        
+        template_data["files_with_previews"].append(copied_item)
+
+    # Files without previews
+    for item in data.get("files_without_previews", []):
+        copied_item = item.copy()
+        copied_item["archive_link"] = f"file:///{item['path_absolute']}"
+        
+        # DODAJ KOLOR ARCHIWUM
+        file_name = item.get('name', '')
+        file_ext = os.path.splitext(file_name)[1].lower()
+        copied_item["archive_color"] = config_manager.get_archive_color(file_ext)
+        
+        template_data["files_without_previews"].append(copied_item)
+
+    # ... rest of existing code ...
 Zmiany w pliku templates/gallery_template.html
 html<!DOCTYPE html>
 <html lang="pl">
@@ -44,7 +151,10 @@ html<!DOCTYPE html>
         <h2>🖼️ Pliki z podglądem ({{ files_with_previews|length }})</h2>
         <div class="gallery" id="filesWithPreviewsGallery">
           {% for file in files_with_previews %}
-          <div class="gallery-item">
+          <div class="gallery-item" style="background-color: {{ file.archive_color }}22; border-color: {{ file.archive_color }};">
+            <!-- Checkbox w lewym górnym rogu -->
+            <input type="checkbox" class="gallery-checkbox" data-file="{{ file.name }}" data-path="{{ file.path_absolute }}">
+            
             {% if file.preview_relative_path %}
             <img
               src="{{ file.preview_relative_path }}"
@@ -87,7 +197,7 @@ html<!DOCTYPE html>
           <h2>📄 Pliki bez podglądu ({{ files_without_previews|length }})</h2>
           <ul class="no-preview-list">
             {% for file in files_without_previews %}
-            <li>
+            <li style="border-left: 4px solid {{ file.archive_color }};">
               <div class="file-item">
                 <input
                   type="checkbox"
@@ -131,6 +241,15 @@ html<!DOCTYPE html>
                   >{{ image.name }}</a
                 >
                 <span class="file-info"> — {{ image.size_readable }}</span>
+                <!-- IKONKA KOSZA DO USUWANIA -->
+                <button 
+                  class="delete-image-btn" 
+                  data-file-path="{{ image.path_absolute }}"
+                  data-file-name="{{ image.name }}"
+                  title="Usuń {{ image.name }} do kosza"
+                >
+                  🗑️
+                </button>
               </div>
             </li>
             {% endfor %}
@@ -183,6 +302,44 @@ html<!DOCTYPE html>
           previewBackdrop.classList.remove('show');
           previewImg.src = '';
         }
+
+        // OBSŁUGA USUWANIA PLIKÓW OBRAZÓW
+        const deleteButtons = document.querySelectorAll('.delete-image-btn');
+        deleteButtons.forEach(button => {
+          button.addEventListener('click', function(e) {
+            e.preventDefault();
+            e.stopPropagation();
+            
+            const filePath = this.dataset.filePath;
+            const fileName = this.dataset.fileName;
+            
+            if (confirm(`Czy na pewno chcesz usunąć plik "${fileName}" do kosza?`)) {
+              // Komunikacja z PyQt przez localStorage
+              const deleteData = {
+                action: 'deleteFile',
+                filePath: filePath,
+                fileName: fileName,
+                timestamp: new Date().toISOString()
+              };
+              
+              console.log('🗑️ Usuwanie pliku:', deleteData);
+              
+              // Zapisz do localStorage
+              const deleteKey = 'deleteFile_' + Date.now();
+              localStorage.setItem(deleteKey, JSON.stringify(deleteData));
+              localStorage.setItem('latestDelete', deleteKey);
+              
+              // Usuń element z listy natychmiast (optymistyczne usuwanie)
+              const listItem = this.closest('li');
+              if (listItem) {
+                listItem.style.opacity = '0.5';
+                listItem.style.pointerEvents = 'none';
+                this.textContent = '⏳';
+                this.disabled = true;
+              }
+            }
+          });
+        });
 
         // Podgląd na hover dla obrazów
         galleries.forEach((gallery) => {
@@ -292,30 +449,33 @@ html<!DOCTYPE html>
                 archiveBasename: archiveChecked.dataset.basename,
                 imageBasename: imageChecked.dataset.basename,
                 timestamp: new Date().toISOString(),
-                currentFolder: window.location.pathname
+                currentFolder: window.location.pathname,
               };
 
               console.log('🎯 Zapisuję dopasowanie:', matchData);
-              
+
               // ZAPISZ DO localStorage z unikalnym kluczem
               const matchKey = 'learningMatch_' + Date.now();
               localStorage.setItem(matchKey, JSON.stringify(matchData));
               localStorage.setItem('latestMatch', matchKey);
-              
+
               // Informuj o powodzeniu
-              matchStatus.textContent = '✅ Dopasowanie zapisane! Trwa nauka algorytmu...';
+              matchStatus.textContent =
+                '✅ Dopasowanie zapisane! Trwa nauka algorytmu...';
               matchBtn.disabled = true;
               matchBtn.textContent = '⏳ Przetwarzanie...';
-              
+
               // Wyczyść checkboxy
               archiveChecked.checked = false;
               imageChecked.checked = false;
-              
+
               // Wywołaj polling PyQt natychmiast
               setTimeout(() => {
-                window.dispatchEvent(new CustomEvent('learningMatchReady', {
-                  detail: matchData
-                }));
+                window.dispatchEvent(
+                  new CustomEvent('learningMatchReady', {
+                    detail: matchData,
+                  })
+                );
               }, 100);
             }
           });
@@ -324,8 +484,94 @@ html<!DOCTYPE html>
     </script>
   </body>
 </html>
-Zmiany w pliku main.py - całkowita przebudowa obsługi uczenia
-python# main.py - dodaj nową funkcjonalność uczenia się
+Zmiany w pliku templates/gallery_styles.css
+css/* Dodaj na końcu pliku */
+
+/* CHECKBOX W GALERII - LEWY GÓRNY RÓG */
+.gallery-item {
+  position: relative;
+  /* ... existing styles ... */
+}
+
+.gallery-checkbox {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  width: 18px;
+  height: 18px;
+  z-index: 10;
+  accent-color: var(--accent);
+  cursor: pointer;
+  background: rgba(255, 255, 255, 0.9);
+  border-radius: 3px;
+  border: 1px solid var(--border);
+}
+
+.gallery-checkbox:checked {
+  background: var(--accent);
+}
+
+/* PRZYCISK USUWANIA OBRAZÓW */
+.delete-image-btn {
+  background: none;
+  border: none;
+  color: var(--danger);
+  cursor: pointer;
+  font-size: 1rem;
+  padding: 4px 6px;
+  border-radius: var(--radius-sm);
+  transition: var(--transition);
+  margin-left: auto;
+  opacity: 0.7;
+}
+
+.delete-image-btn:hover {
+  background: rgba(248, 81, 73, 0.1);
+  opacity: 1;
+  transform: scale(1.1);
+}
+
+.delete-image-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+  transform: none;
+}
+
+/* DOSTOSOWANIE FILE-ITEM DLA PRZYCISKU USUWANIA */
+.file-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+}
+
+.file-item a {
+  flex: 1;
+}
+
+/* KOLOROWE OBRAMOWANIA DLA ARCHIWÓW W LISTACH */
+.no-preview-list li {
+  transition: var(--transition);
+  border-left-width: 4px;
+  border-left-style: solid;
+}
+
+/* Responsive dla przycisków usuwania */
+@media (max-width: 768px) {
+  .delete-image-btn {
+    font-size: 0.9rem;
+    padding: 3px 5px;
+  }
+  
+  .gallery-checkbox {
+    width: 16px;
+    height: 16px;
+    top: 6px;
+    left: 6px;
+  }
+}
+Zmiany w pliku main.py - dodaj obsługę usuwania plików
+python# W klasie MainWindow dodaj nową metodę:
 
 def setup_learning_bridge(self):
     """Konfiguruje most komunikacyjny z JavaScript dla funkcji uczenia się"""
@@ -335,253 +581,128 @@ def setup_learning_bridge(self):
     self.learning_timer = QTimer()
     self.learning_timer.timeout.connect(self.check_for_learning_matches)
     self.learning_timer.start(1000)  # Co sekundę
+    
+    # Timer do sprawdzania usuwania plików
+    self.delete_timer = QTimer()
+    self.delete_timer.timeout.connect(self.check_for_file_deletions)
+    self.delete_timer.start(1000)  # Co sekundę
 
-def inject_learning_bridge(self):
-    """Wstrzykuje bridge JavaScript dla komunikacji z funkcją uczenia się"""
-    bridge_js = """
-    console.log('🔌 Learning bridge injected');
-    window.addEventListener('learningMatchReady', function(event) {
-        console.log('🎯 Learning match event received:', event.detail);
-    });
-    """
-    self.web_view.page().runJavaScript(bridge_js)
-
-def check_for_learning_matches(self):
-    """Sprawdza localStorage pod kątem nowych dopasowań do nauki"""
+def check_for_file_deletions(self):
+    """Sprawdza localStorage pod kątem żądań usunięcia plików"""
     js_code = """
     (function() {
         try {
-            const latestMatchKey = localStorage.getItem('latestMatch');
-            if (latestMatchKey) {
-                const matchData = localStorage.getItem(latestMatchKey);
-                if (matchData) {
+            const latestDeleteKey = localStorage.getItem('latestDelete');
+            if (latestDeleteKey) {
+                const deleteData = localStorage.getItem(latestDeleteKey);
+                if (deleteData) {
                     // Usuń z localStorage
-                    localStorage.removeItem(latestMatchKey);
-                    localStorage.removeItem('latestMatch');
-                    console.log('🔍 Found learning match:', matchData);
-                    return matchData;
+                    localStorage.removeItem(latestDeleteKey);
+                    localStorage.removeItem('latestDelete');
+                    console.log('🗑️ Found delete request:', deleteData);
+                    return deleteData;
                 }
             }
             return null;
         } catch(e) {
-            console.error('Error checking learning matches:', e);
+            console.error('Error checking delete requests:', e);
             return null;
         }
     })();
     """
     
-    self.web_view.page().runJavaScript(js_code, self.handle_learning_match)
+    self.web_view.page().runJavaScript(js_code, self.handle_file_deletion)
 
-def handle_learning_match(self, result):
-    """Obsługuje nowe dopasowanie z JavaScript"""
+def handle_file_deletion(self, result):
+    """Obsługuje żądanie usunięcia pliku"""
     if result:
         try:
-            match_data = json.loads(result)
-            print(f"🎓 OTRZYMANO NOWE DOPASOWANIE: {match_data}")
-            self.log_message(f"🎓 Nowe dopasowanie: {match_data['archiveFile']} ↔ {match_data['imageFile']}")
+            delete_data = json.loads(result)
+            file_path = delete_data.get('filePath', '')
+            file_name = delete_data.get('fileName', '')
             
-            # Zapisz dopasowanie
-            self.save_learning_data(
-                match_data['archiveFile'],
-                match_data['imageFile'], 
-                match_data['archivePath'],
-                match_data['imagePath']
-            )
+            print(f"🗑️ ŻĄDANIE USUNIĘCIA: {file_name} -> {file_path}")
+            self.log_message(f"🗑️ Usuwanie do kosza: {file_name}")
             
-            # NATYCHMIASTOWE ZASTOSOWANIE - ponowne skanowanie aktualnego folderu
-            self.apply_learning_immediately(match_data)
+            # Usuń plik do kosza
+            success = self.delete_file_to_trash(file_path)
             
+            if success:
+                self.log_message(f"✅ Plik usunięty do kosza: {file_name}")
+                # Odśwież galerię po usunięciu
+                QTimer.singleShot(500, self.refresh_gallery_after_deletion)
+            else:
+                self.log_message(f"❌ Błąd usuwania pliku: {file_name}")
+                # Przywróć element w JavaScript
+                restore_js = f"""
+                const deleteKey = 'deleteFile_restore_' + Date.now();
+                localStorage.setItem(deleteKey, JSON.stringify({{
+                    action: 'restoreFile',
+                    fileName: '{file_name}',
+                    error: 'Nie udało się usunąć pliku'
+                }}));
+                localStorage.setItem('latestRestore', deleteKey);
+                """
+                self.web_view.page().runJavaScript(restore_js)
+                
         except Exception as e:
-            print(f"❌ Błąd przetwarzania dopasowania: {e}")
-            self.log_message(f"Błąd przetwarzania dopasowania: {e}")
+            print(f"❌ Błąd przetwarzania usuwania: {e}")
+            self.log_message(f"Błąd usuwania pliku: {e}")
 
-def apply_learning_immediately(self, match_data):
-    """Natychmiast stosuje nauczone dopasowanie"""
+def delete_file_to_trash(self, file_path):
+    """Usuwa plik do kosza systemowego"""
     try:
-        # Znajdź folder z którego pochodzi dopasowanie
-        archive_path = match_data.get('archivePath', '')
-        if archive_path:
-            current_folder = os.path.dirname(archive_path.replace('/', os.sep))
-            print(f"🔄 Ponowne skanowanie folderu: {current_folder}")
+        import send2trash
+        
+        if not os.path.exists(file_path):
+            print(f"❌ Plik nie istnieje: {file_path}")
+            return False
             
-            # Uruchom ponowne skanowanie tego konkretnego folderu
-            self.rescan_specific_folder(current_folder)
-            
+        send2trash.send2trash(file_path)
+        print(f"✅ Plik usunięty do kosza: {file_path}")
+        return True
+        
+    except ImportError:
+        print("❌ Brak biblioteki send2trash - instaluj: pip install send2trash")
+        try:
+            # Fallback - usuń na stałe (niebezpieczne!)
+            os.remove(file_path)
+            print(f"⚠️ Plik usunięty na stałe: {file_path}")
+            return True
+        except Exception as e:
+            print(f"❌ Błąd usuwania pliku: {e}")
+            return False
     except Exception as e:
-        print(f"❌ Błąd zastosowania nauki: {e}")
-        self.log_message(f"Błąd zastosowania nauki: {e}")
+        print(f"❌ Błąd usuwania do kosza: {e}")
+        return False
 
-def rescan_specific_folder(self, folder_path):
-    """Ponownie skanuje konkretny folder i odświeża galerię"""
+def refresh_gallery_after_deletion(self):
+    """Odświeża galerię po usunięciu pliku"""
     try:
-        if not os.path.exists(folder_path):
-            print(f"❌ Folder nie istnieje: {folder_path}")
-            return
-            
-        self.log_message(f"🔄 Ponowne skanowanie: {folder_path}")
+        print("🔄 Odświeżanie galerii po usunięciu pliku")
         
-        # Uruchom skanowanie w tle dla tego folderu
-        import threading
-        
-        def scan_and_refresh():
-            try:
-                # Skanuj folder
-                scanner_logic.process_folder(folder_path, lambda msg: print(f"📁 {msg}"))
-                
-                # Odśwież galerię w głównym wątku
-                QTimer.singleShot(500, lambda: self.refresh_gallery_after_learning(folder_path))
-                
-            except Exception as e:
-                print(f"❌ Błąd skanowania: {e}")
-        
-        thread = threading.Thread(target=scan_and_refresh)
-        thread.daemon = True
-        thread.start()
-        
-    except Exception as e:
-        print(f"❌ Błąd rescan_specific_folder: {e}")
-
-def refresh_gallery_after_learning(self, scanned_folder):
-    """Odświeża galerię po zastosowaniu nauki"""
-    try:
-        print(f"🔄 Odświeżanie galerii po nauce dla: {scanned_folder}")
-        
-        # Sprawdź czy to aktualny folder lub jego podfolder
+        # Najpierw reskanuj aktualny folder
         current_url = self.web_view.url().toLocalFile()
         if current_url and "_gallery_cache" in current_url:
             gallery_folder = os.path.dirname(current_url)
             original_folder = self.get_original_folder_from_gallery_path(gallery_folder)
             
-            if original_folder and (original_folder == scanned_folder or scanned_folder.startswith(original_folder)):
-                print(f"✅ Folder {scanned_folder} jest częścią aktualnej galerii - odświeżam")
+            if original_folder:
+                print(f"🔄 Ponowne skanowanie po usunięciu: {original_folder}")
+                self.rescan_specific_folder(original_folder)
                 
-                # Przebuduj galerię
-                self.rebuild_gallery_silent()
-                
-                # Poinformuj o sukcesie przez JavaScript
-                success_js = """
-                const matchBtn = document.getElementById('matchPreviewBtn');
-                const matchStatus = document.getElementById('matchStatus');
-                if (matchBtn && matchStatus) {
-                    matchBtn.disabled = false;
-                    matchBtn.textContent = '🎯 Dopasuj podgląd';
-                    matchStatus.textContent = '🎉 Dopasowanie zastosowane! Galeria została odświeżona.';
-                    
-                    setTimeout(() => {
-                        matchStatus.textContent = '';
-                    }, 5000);
-                }
-                """
-                self.web_view.page().runJavaScript(success_js)
-                
-                self.log_message("✅ Algorytm nauczony! Galeria odświeżona.")
-                
-        else:
-            print(f"ℹ️ Folder {scanned_folder} nie jest częścią aktualnej galerii")
-            
     except Exception as e:
-        print(f"❌ Błąd odświeżania galerii: {e}")
-
-def rebuild_gallery_silent(self):
-    """Przebudowuje galerię w tle bez pokazywania dialogów"""
-    try:
-        if not self.current_work_directory:
-            return
-            
-        # Sprawdź czy jest już proces
-        if (self.gallery_thread and self.gallery_thread.isRunning()):
-            return
-            
-        print("🔄 Ciche przebudowanie galerii...")
-        
-        self.gallery_thread = GalleryWorker(
-            self.current_work_directory, self.GALLERY_CACHE_DIR
-        )
-        self.gallery_thread.progress_signal.connect(lambda msg: print(f"🏗️ {msg}"))
-        self.gallery_thread.finished_signal.connect(self.gallery_rebuilt_silently)
-        self.gallery_thread.start()
-        
-    except Exception as e:
-        print(f"❌ Błąd rebuild_gallery_silent: {e}")
-
-def gallery_rebuilt_silently(self, root_html_path):
-    """Obsługuje zakończenie cichego przebudowania galerii"""
-    try:
-        if root_html_path:
-            print(f"✅ Galeria przebudowana cicho: {root_html_path}")
-            
-            # Odśwież aktualną stronę
-            current_url = self.web_view.url()
-            self.web_view.reload()
-            
-        self.gallery_thread = None
-        
-    except Exception as e:
-        print(f"❌ Błąd gallery_rebuilt_silently: {e}")
-
-def save_learning_data(self, archive_file, image_file, archive_path, image_path):
-    """Zapisuje dane uczenia się do pliku JSON"""
-    try:
-        learning_file = "learning_data.json"
-        learning_data = []
-
-        # Wczytaj istniejące dane
-        if os.path.exists(learning_file):
-            with open(learning_file, "r", encoding="utf-8") as f:
-                learning_data = json.load(f)
-
-        # Sprawdź czy już istnieje takie dopasowanie
-        archive_basename = os.path.splitext(archive_file)[0]
-        image_basename = os.path.splitext(image_file)[0]
-        
-        # Usuń stare dopasowanie dla tego samego archiwum jeśli istnieje
-        learning_data = [item for item in learning_data 
-                        if item.get('archive_basename', '').lower() != archive_basename.lower()]
-
-        # Dodaj nowe dopasowanie
-        new_match = {
-            "archive_file": archive_file,
-            "image_file": image_file,
-            "archive_path": archive_path,
-            "image_path": image_path,
-            "timestamp": datetime.now().isoformat(),
-            "archive_basename": archive_basename,
-            "image_basename": image_basename,
-        }
-
-        learning_data.append(new_match)
-
-        # Zapisz zaktualizowane dane
-        with open(learning_file, "w", encoding="utf-8") as f:
-            json.dump(learning_data, f, indent=2, ensure_ascii=False)
-
-        print(f"💾 Zapisano dane uczenia się: {len(learning_data)} dopasowań")
-        self.log_message(f"💾 Zapisano nauczone dopasowanie: {archive_file} ↔ {image_file}")
-
-    except Exception as e:
-        print(f"❌ Błąd zapisu danych uczenia się: {e}")
-        self.log_message(f"Błąd zapisu danych uczenia się: {e}")
-
-# Dodaj do __init__ klasy MainWindow:
-def __init__(self):
-    # ... existing code ...
-    
-    self.setup_learning_bridge()  # Dodaj tę linię na końcu __init__
-    
-    if self.current_work_directory:
-        # ... existing code ...
-        pass
-Dodatkowo - dodaj do importów w main.py:
-python# main.py - na górze pliku dodaj
-import threading
-from PyQt6.QtCore import QTimer
+        print(f"❌ Błąd odświeżania po usunięciu: {e}")
+Dodaj import w main.py
+python# Na górze pliku main.py dodaj:
+import send2trash  # pip install send2trash
 Kluczowe zmiany:
 
-Polling localStorage - PyQt sprawdza co sekundę localStorage pod kątem nowych dopasowań
-Natychmiastowe skanowanie - po otrzymaniu dopasowania, folder jest ponownie skanowany w tle
-Cicha przebudowa galerii - galeria jest przebudowywana bez pokazywania dialogów
-Automatyczne odświeżenie - strona jest automatycznie odświeżana po zastosowaniu nauki
-Feedback użytkownikowi - przycisk pokazuje status i informuje o sukcesie
-Bezpieczne threading - skanowanie odbywa się w osobnym wątku
+Kolory archiwów - Każdy typ archiwum ma swój kolor z config.json, kafelki mają tło i obramowanie w kolorze typu
+Checkboxy w galerii - Każdy kafelek ma checkbox w lewym górnym rogu (na razie bez funkcji)
+Ikonka kosza - Przy każdym obrazie w liście "Pozostałe obrazy" jest przycisk kosza
+Usuwanie do kosza - Kliknięcie kosza usuwa plik do kosza systemowego przez bibliotekę send2trash
+Komunikacja JS-Python - JavaScript komunikuje się z Python przez localStorage
+Automatyczne odświeżanie - Po usunięciu pliku galeria jest automatycznie odświeżana
 
-Teraz przycisk rzeczywiście działa - dopasowuje podgląd, uczy algorytm i automatycznie odświeża stronę!
+Pamiętaj o zainstalowaniu biblioteki: pip install send2trash

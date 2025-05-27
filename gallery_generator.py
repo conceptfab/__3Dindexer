@@ -202,12 +202,24 @@ def process_single_index_json(
             copied_item["preview_relative_path"] = (
                 f"file:///{item['preview_path_absolute']}"
             )
+
+        # DODAJ KOLOR ARCHIWUM NA PODSTAWIE ROZSZERZENIA
+        file_name = item.get("name", "")
+        file_ext = os.path.splitext(file_name)[1].lower()
+        copied_item["archive_color"] = config_manager.get_archive_color(file_ext)
+
         template_data["files_with_previews"].append(copied_item)
 
     # Files without previews
     for item in data.get("files_without_previews", []):
         copied_item = item.copy()
         copied_item["archive_link"] = f"file:///{item['path_absolute']}"
+
+        # DODAJ KOLOR ARCHIWUM
+        file_name = item.get("name", "")
+        file_ext = os.path.splitext(file_name)[1].lower()
+        copied_item["archive_color"] = config_manager.get_archive_color(file_ext)
+
         template_data["files_without_previews"].append(copied_item)
 
     # Other images - używaj bezpośrednich ścieżek

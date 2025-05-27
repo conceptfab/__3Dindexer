@@ -510,3 +510,86 @@ a:hover {
     font-size: 0.9rem;
   }
 }
+
+/* CHECKBOX W GALERII - LEWY GÓRNY RÓG */
+.gallery-item {
+  position: relative;
+}
+
+.gallery-checkbox {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  width: 18px;
+  height: 18px;
+  z-index: 10;
+  accent-color: var(--accent);
+  cursor: pointer;
+  background: rgba(255, 255, 255, 0.9);
+  border-radius: 3px;
+  border: 1px solid var(--border);
+}
+
+.gallery-checkbox:checked {
+  background: var(--accent);
+}
+
+/* PRZYCISK USUWANIA OBRAZÓW */
+.delete-image-btn {
+  background: none;
+  border: none;
+  color: var(--danger);
+  cursor: pointer;
+  font-size: 1rem;
+  padding: 4px 6px;
+  border-radius: var(--radius-sm);
+  transition: var(--transition);
+  margin-left: auto;
+  opacity: 0.7;
+}
+
+.delete-image-btn:hover {
+  background: rgba(248, 81, 73, 0.1);
+  opacity: 1;
+  transform: scale(1.1);
+}
+
+.delete-image-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+  transform: none;
+}
+
+/* DOSTOSOWANIE FILE-ITEM DLA PRZYCISKU USUWANIA */
+.file-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+}
+
+.file-item a {
+  flex: 1;
+}
+
+/* KOLOROWE OBRAMOWANIA DLA ARCHIWÓW W LISTACH */
+.no-preview-list li {
+  transition: var(--transition);
+  border-left-width: 4px;
+  border-left-style: solid;
+}
+
+/* Responsive dla przycisków usuwania */
+@media (max-width: 768px) {
+  .delete-image-btn {
+    font-size: 0.9rem;
+    padding: 3px 5px;
+  }
+
+  .gallery-checkbox {
+    width: 16px;
+    height: 16px;
+    top: 6px;
+    left: 6px;
+  }
+}

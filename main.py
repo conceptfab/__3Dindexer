@@ -8,6 +8,7 @@ import webbrowser
 from datetime import datetime
 
 import qdarktheme
+import send2trash  # pip install send2trash
 from PyQt6.QtCore import Qt, QThread, QTimer, QUrl, pyqtSignal
 from PyQt6.QtGui import QDesktopServices
 from PyQt6.QtWebEngineCore import QWebEnginePage
@@ -1035,6 +1036,11 @@ class MainWindow(QMainWindow):
         self.learning_timer.timeout.connect(self.check_for_learning_matches)
         self.learning_timer.start(1000)  # Co sekundę
 
+        # Timer do sprawdzania usuwania plików
+        self.delete_timer = QTimer()
+        self.delete_timer.timeout.connect(self.check_for_file_deletions)
+        self.delete_timer.start(1000)  # Co sekundę
+
     def inject_learning_bridge(self):
         """Wstrzykuje bridge JavaScript dla komunikacji z funkcją uczenia się"""
         bridge_js = """
@@ -1278,6 +1284,113 @@ class MainWindow(QMainWindow):
         except Exception as e:
             print(f"❌ Błąd zapisu danych uczenia się: {e}")
             self.log_message(f"Błąd zapisu danych uczenia się: {e}")
+
+    def check_for_file_deletions(self):
+        """Sprawdza localStorage pod kątem żądań usunięcia plików"""
+        js_code = """
+        (function() {
+            try {
+                const latestDeleteKey = localStorage.getItem('latestDelete');
+                if (latestDeleteKey) {
+                    const deleteData = localStorage.getItem(latestDeleteKey);
+                    if (deleteData) {
+                        // Usuń z localStorage
+                        localStorage.removeItem(latestDeleteKey);
+                        localStorage.removeItem('latestDelete');
+                        console.log('🗑️ Found delete request:', deleteData);
+                        return deleteData;
+                    }
+                }
+                return null;
+            } catch(e) {
+                console.error('Error checking delete requests:', e);
+                return null;
+            }
+        })();
+        """
+
+        self.web_view.page().runJavaScript(js_code, self.handle_file_deletion)
+
+    def handle_file_deletion(self, result):
+        """Obsługuje żądanie usunięcia pliku"""
+        if result:
+            try:
+                delete_data = json.loads(result)
+                file_path = delete_data.get("filePath", "")
+                file_name = delete_data.get("fileName", "")
+
+                print(f"🗑️ ŻĄDANIE USUNIĘCIA: {file_name} -> {file_path}")
+                self.log_message(f"🗑️ Usuwanie do kosza: {file_name}")
+
+                # Usuń plik do kosza
+                success = self.delete_file_to_trash(file_path)
+
+                if success:
+                    self.log_message(f"✅ Plik usunięty do kosza: {file_name}")
+                    # Odśwież galerię po usunięciu
+                    QTimer.singleShot(500, self.refresh_gallery_after_deletion)
+                else:
+                    self.log_message(f"❌ Błąd usuwania pliku: {file_name}")
+                    # Przywróć element w JavaScript
+                    restore_js = f"""
+                    const deleteKey = 'deleteFile_restore_' + Date.now();
+                    localStorage.setItem(deleteKey, JSON.stringify({{
+                        action: 'restoreFile',
+                        fileName: '{file_name}',
+                        error: 'Nie udało się usunąć pliku'
+                    }}));
+                    localStorage.setItem('latestRestore', deleteKey);
+                    """
+                    self.web_view.page().runJavaScript(restore_js)
+
+            except Exception as e:
+                print(f"❌ Błąd przetwarzania usuwania: {e}")
+                self.log_message(f"Błąd usuwania pliku: {e}")
+
+    def delete_file_to_trash(self, file_path):
+        """Usuwa plik do kosza systemowego"""
+        try:
+            if not os.path.exists(file_path):
+                print(f"❌ Plik nie istnieje: {file_path}")
+                return False
+
+            send2trash.send2trash(file_path)
+            print(f"✅ Plik usunięty do kosza: {file_path}")
+            return True
+
+        except ImportError:
+            print("❌ Brak biblioteki send2trash - instaluj: pip install send2trash")
+            try:
+                # Fallback - usuń na stałe (niebezpieczne!)
+                os.remove(file_path)
+                print(f"⚠️ Plik usunięty na stałe: {file_path}")
+                return True
+            except Exception as e:
+                print(f"❌ Błąd usuwania pliku: {e}")
+                return False
+        except Exception as e:
+            print(f"❌ Błąd usuwania do kosza: {e}")
+            return False
+
+    def refresh_gallery_after_deletion(self):
+        """Odświeża galerię po usunięciu pliku"""
+        try:
+            print("🔄 Odświeżanie galerii po usunięciu pliku")
+
+            # Najpierw reskanuj aktualny folder
+            current_url = self.web_view.url().toLocalFile()
+            if current_url and "_gallery_cache" in current_url:
+                gallery_folder = os.path.dirname(current_url)
+                original_folder = self.get_original_folder_from_gallery_path(
+                    gallery_folder
+                )
+
+                if original_folder:
+                    print(f"🔄 Ponowne skanowanie po usunięciu: {original_folder}")
+                    self.rescan_specific_folder(original_folder)
+
+        except Exception as e:
+            print(f"❌ Błąd odświeżania po usunięciu: {e}")
 
 
 if __name__ == "__main__":

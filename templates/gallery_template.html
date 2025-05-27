@@ -43,7 +43,18 @@
         <h2>🖼️ Pliki z podglądem ({{ files_with_previews|length }})</h2>
         <div class="gallery" id="filesWithPreviewsGallery">
           {% for file in files_with_previews %}
-          <div class="gallery-item">
+          <div
+            class="gallery-item"
+            style="background-color: {{ file.archive_color }}22; border-color: {{ file.archive_color }};"
+          >
+            <!-- Checkbox w lewym górnym rogu -->
+            <input
+              type="checkbox"
+              class="gallery-checkbox"
+              data-file="{{ file.name }}"
+              data-path="{{ file.path_absolute }}"
+            />
+
             {% if file.preview_relative_path %}
             <img
               src="{{ file.preview_relative_path }}"
@@ -86,7 +97,7 @@
           <h2>📄 Pliki bez podglądu ({{ files_without_previews|length }})</h2>
           <ul class="no-preview-list">
             {% for file in files_without_previews %}
-            <li>
+            <li style="border-left: 4px solid {{ file.archive_color }};">
               <div class="file-item">
                 <input
                   type="checkbox"
@@ -130,6 +141,15 @@
                   >{{ image.name }}</a
                 >
                 <span class="file-info"> — {{ image.size_readable }}</span>
+                <!-- IKONKA KOSZA DO USUWANIA -->
+                <button
+                  class="delete-image-btn"
+                  data-file-path="{{ image.path_absolute }}"
+                  data-file-name="{{ image.name }}"
+                  title="Usuń {{ image.name }} do kosza"
+                >
+                  🗑️
+                </button>
               </div>
             </li>
             {% endfor %}
@@ -182,6 +202,46 @@
           previewBackdrop.classList.remove('show');
           previewImg.src = '';
         }
+
+        // OBSŁUGA USUWANIA PLIKÓW OBRAZÓW
+        const deleteButtons = document.querySelectorAll('.delete-image-btn');
+        deleteButtons.forEach((button) => {
+          button.addEventListener('click', function (e) {
+            e.preventDefault();
+            e.stopPropagation();
+
+            const filePath = this.dataset.filePath;
+            const fileName = this.dataset.fileName;
+
+            if (
+              confirm(`Czy na pewno chcesz usunąć plik "${fileName}" do kosza?`)
+            ) {
+              // Komunikacja z PyQt przez localStorage
+              const deleteData = {
+                action: 'deleteFile',
+                filePath: filePath,
+                fileName: fileName,
+                timestamp: new Date().toISOString(),
+              };
+
+              console.log('🗑️ Usuwanie pliku:', deleteData);
+
+              // Zapisz do localStorage
+              const deleteKey = 'deleteFile_' + Date.now();
+              localStorage.setItem(deleteKey, JSON.stringify(deleteData));
+              localStorage.setItem('latestDelete', deleteKey);
+
+              // Usuń element z listy natychmiast (optymistyczne usuwanie)
+              const listItem = this.closest('li');
+              if (listItem) {
+                listItem.style.opacity = '0.5';
+                listItem.style.pointerEvents = 'none';
+                this.textContent = '⏳';
+                this.disabled = true;
+              }
+            }
+          });
+        });
 
         // Podgląd na hover dla obrazów
         galleries.forEach((gallery) => {
