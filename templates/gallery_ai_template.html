@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="pl">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>🧠 Galeria AI: {{ current_folder_display_name }}</title>
+    <link rel="stylesheet" href="{{ css_path_prefix }}gallery_styles.css" />
+    <style>
+      .ai-header {
+        background: linear-gradient(135deg, #5a2d5a, #2d5a5a);
+        color: white;
+        padding: 20px;
+        border-radius: 12px;
+        margin-bottom: 24px;
+        text-align: center;
+      }
+      .ai-stats {
+        display: flex;
+        justify-content: space-around;
+        margin-top: 16px;
+      }
+      .ai-stat {
+        text-align: center;
+      }
+      .ai-stat-value {
+        font-size: 2rem;
+        font-weight: bold;
+        color: #3daee9;
+      }
+      .ai-match-confidence {
+        position: absolute;
+        top: 8px;
+        left: 8px;
+        background: rgba(61, 174, 233, 0.9);
+        color: white;
+        padding: 2px 6px;
+        border-radius: 4px;
+        font-size: 0.75rem;
+        font-weight: bold;
+      }
+      .ai-match-confidence.HIGH {
+        background: rgba(63, 185, 80, 0.9);
+      }
+      .ai-match-confidence.MEDIUM {
+        background: rgba(210, 153, 34, 0.9);
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <!-- Nagłówek AI -->
+      <div class="ai-header">
+        <h1>🧠 Galeria AI: {{ current_folder_display_name }}</h1>
+        <p>Inteligentne dopasowania obrazów do archiwów</p>
+        {% if ai_info %}
+        <div class="ai-stats">
+          <div class="ai-stat">
+            <div class="ai-stat-value">{{ ai_info.total_matches }}</div>
+            <div>Dopasowań AI</div>
+          </div>
+          {% if ai_info.statistics %}
+          <div class="ai-stat">
+            <div class="ai-stat-value">
+              {{ "%.1f"|format(ai_info.statistics.match_rate * 100) }}%
+            </div>
+            <div>Skuteczność</div>
+          </div>
+          <div class="ai-stat">
+            <div class="ai-stat-value">
+              {{ ai_info.statistics.high_confidence_matches }}
+            </div>
+            <div>Wysokiej pewności</div>
+          </div>
+          {% endif %}
+        </div>
+        {% endif %}
+      </div>
+
+      <!-- Breadcrumb -->
+      <div class="breadcrumb">
+        {% for part in breadcrumb_parts %} {% if part.link %}
+        <a href="{{ part.link }}">{{ part.name }}</a>
+        {% else %}
+        <span>{{ part.name }}</span>
+        {% endif %} {% if not loop.last %}<span>/</span>{% endif %} {% endfor %}
+      </div>
+
+      <!-- Dopasowania AI -->
+      {% if files_with_previews %}
+      <div class="section">
+        <h2>🤖 Dopasowania AI ({{ files_with_previews|length }})</h2>
+        <div class="gallery" id="aiMatchesGallery">
+          {% for file in files_with_previews %}
+          <div class="gallery-item">
+            <div class="ai-match-confidence {{ file.ai_confidence }}">
+              {{ file.ai_confidence }} {% if file.ai_similarity_score %}
+              <br />{{ "%.1f"|format(file.ai_similarity_score * 100) }}% {%
+              endif %}
+            </div>
+
+            {% if file.preview_path_absolute %}
+            <img
+              src="file:///{{ file.preview_path_absolute.replace('\\', '/') }}"
+              alt="Podgląd AI dla {{ file.name }}"
+              class="preview-image"
+              loading="lazy"
+            />
+            {% endif %}
+
+            <p>
+              <a
+                href="file:///{{ file.path_absolute.replace('\\', '/') }}"
+                title="Otwórz: {{ file.name }}"
+                >{{ file.name }}</a
+              >
+            </p>
+            <p class="file-info">{{ file.size_readable }}</p>
+            <p class="file-info" style="color: #3daee9">
+              🧠 {{ file.preview_name }}
+            </p>
+          </div>
+          {% endfor %}
+        </div>
+      </div>
+      {% else %}
+      <div class="section">
+        <p>Brak dopasowań AI w tym folderze. Uruchom skanowanie AI.</p>
+      </div>
+      {% endif %}
+    </div>
+
+    <!-- Modal podglądu -->
+    <div class="preview-backdrop" id="previewBackdrop"></div>
+    <div class="preview-modal" id="previewModal">
+      <img src="" alt="Podgląd" id="previewImg" />
+    </div>
+
+    <script>
+      // Podstawowa obsługa podglądu (skopiowana z głównego szablonu)
+      document.addEventListener('DOMContentLoaded', function () {
+        const previewModal = document.getElementById('previewModal');
+        const previewBackdrop = document.getElementById('previewBackdrop');
+        const previewImg = document.getElementById('previewImg');
+
+        function showPreview(imageSrc) {
+          if (!imageSrc || !previewModal || !previewBackdrop || !previewImg)
+            return;
+          previewBackdrop.style.display = 'block';
+          previewModal.style.display = 'block';
+          requestAnimationFrame(() => {
+            previewBackdrop.classList.add('show');
+            previewModal.classList.add('show');
+          });
+          previewImg.src = imageSrc;
+        }
+
+        function hidePreview() {
+          if (!previewModal || !previewBackdrop || !previewImg) return;
+          previewModal.classList.remove('show');
+          previewBackdrop.classList.remove('show');
+          setTimeout(() => {
+            previewModal.style.display = 'none';
+            previewBackdrop.style.display = 'none';
+            previewImg.src = '';
+          }, 200);
+        }
+
+        // Obsługa obrazów
+        document.querySelectorAll('.preview-image').forEach((img) => {
+          let hoverTimeout;
+          img.addEventListener('mouseenter', function () {
+            hoverTimeout = setTimeout(() => {
+              showPreview(this.src);
+            }, 1000);
+          });
+
+          img.addEventListener('mouseleave', function () {
+            clearTimeout(hoverTimeout);
+            hidePreview();
+          });
+        });
+
+        // Zamykanie modalu
+        previewBackdrop.addEventListener('click', hidePreview);
+        document.addEventListener('keydown', function (e) {
+          if (e.key === 'Escape') hidePreview();
+        });
+      });
+    </script>
+  </body>
+</html>

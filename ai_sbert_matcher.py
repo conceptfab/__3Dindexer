@@ -584,5 +584,131 @@ def main():
     print("🔍 Wyszukaj klucze zaczynające się od 'AI_' aby zobaczyć wyniki.")
 
 
+def generate_ai_only_gallery_data(folder_path: str) -> Dict:
+    """
+    Generuje dane galerii zawierające tylko dopasowania AI
+    """
+    index_path = os.path.join(folder_path, "index.json")
+
+    if not os.path.exists(index_path):
+        logger.warning(f"Brak index.json w {folder_path}")
+        return {}
+
+    try:
+        with open(index_path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+    except Exception as e:
+        logger.error(f"Błąd odczytu index.json w {folder_path}: {e}")
+        return {}
+
+    # Sprawdź czy są dane AI
+    if "AI_matches" not in data:
+        logger.debug(f"Brak danych AI_matches w {folder_path}")
+        return {}
+
+    ai_matches = data.get("AI_matches", [])
+    if not ai_matches:
+        logger.debug(f"Pusta lista AI_matches w {folder_path}")
+        return {}
+
+    logger.info(
+        f"Generuję dane galerii AI dla {folder_path} z {len(ai_matches)} dopasowaniami"
+    )
+
+    # Utwórz strukturę danych tylko z dopasowaniami AI
+    ai_gallery_data = {
+        "folder_info": data.get("folder_info", {}).copy(),
+        "files_with_previews": [],
+        "files_without_previews": [],
+        "other_images": [],
+        "ai_info": {
+            "processing_date": data.get("AI_processing_date"),
+            "model_info": data.get("AI_model_info", {}),
+            "statistics": data.get("AI_statistics", {}),
+            "total_matches": len(ai_matches),
+        },
+    }
+
+    # Dodaj informacje AI do folder_info
+    ai_gallery_data["folder_info"]["gallery_type"] = "AI_POWERED"
+    ai_gallery_data["folder_info"]["ai_matches_count"] = len(ai_matches)
+    ai_gallery_data["folder_info"]["ai_scan_date"] = data.get("AI_processing_date")
+
+    # Konwertuj dopasowania AI na format galerii
+    processed_matches = 0
+    for match in ai_matches:
+        archive_file = match.get("archive_file")
+        image_file = match.get("image_file")
+
+        if not archive_file or not image_file:
+            logger.warning(f"Niepełne dopasowanie AI: {match}")
+            continue
+
+        # Znajdź pełne ścieżki plików
+        archive_path = os.path.join(folder_path, archive_file)
+        image_path = os.path.join(folder_path, image_file)
+
+        if not os.path.exists(archive_path):
+            logger.warning(f"Plik archiwum nie istnieje: {archive_path}")
+            continue
+
+        if not os.path.exists(image_path):
+            logger.warning(f"Plik obrazu nie istnieje: {image_path}")
+            continue
+
+        try:
+            archive_size = os.path.getsize(archive_path)
+        except OSError:
+            archive_size = 0
+
+        file_info = {
+            "name": archive_file,
+            "path_absolute": os.path.abspath(archive_path),
+            "size_bytes": archive_size,
+            "size_readable": get_file_size_readable_ai(archive_size),
+            "preview_found": True,
+            "preview_name": image_file,
+            "preview_path_absolute": os.path.abspath(image_path),
+            "preview_relative_path": f"file:///{os.path.abspath(image_path).replace(os.sep, '/')}",
+            "archive_link": f"file:///{os.path.abspath(archive_path).replace(os.sep, '/')}",
+            "ai_match": True,
+            "ai_confidence": match.get("confidence_level", "UNKNOWN"),
+            "ai_similarity_score": match.get("similarity_score", 0.0),
+            "ai_matching_method": match.get("matching_method", "SBERT"),
+            "ai_timestamp": match.get("timestamp"),
+        }
+
+        # Dodaj kolor archiwum jeśli dostępny
+        file_ext = os.path.splitext(archive_file)[1].lower()
+        try:
+            import config_manager
+
+            file_info["archive_color"] = config_manager.get_archive_color(file_ext)
+        except:
+            file_info["archive_color"] = "#6c757d"
+
+        ai_gallery_data["files_with_previews"].append(file_info)
+        processed_matches += 1
+
+    logger.info(
+        f"Przetworzone {processed_matches}/{len(ai_matches)} dopasowań AI dla {folder_path}"
+    )
+
+    return ai_gallery_data
+
+
+def get_file_size_readable_ai(size_bytes):
+    """Funkcja pomocnicza do konwersji rozmiaru pliku dla AI"""
+    if size_bytes == 0:
+        return "0 B"
+    size_name = ("B", "KB", "MB", "GB", "TB")
+    i = 0
+    size_float = float(size_bytes)
+    while size_float >= 1024 and i < len(size_name) - 1:
+        size_float /= 1024.0
+        i += 1
+    return f"{size_float:.2f} {size_name[i]}"
+
+
 if __name__ == "__main__":
     main()

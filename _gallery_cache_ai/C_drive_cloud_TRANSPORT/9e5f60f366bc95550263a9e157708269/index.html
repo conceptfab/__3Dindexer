@@ -1,0 +1,582 @@
+<!DOCTYPE html>
+<html lang="pl">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Galeria: Boeing 777-300</title>
+    <!-- 
+      ####################################################################
+      #  TUTAJ JEST KLUCZOWA POPRAWKA:                                   #
+      #  Zamiast " ../gallery_styles.css"               #
+      #  Używamy "../gallery_styles.css"              #
+      #  css_path_prefix jest przekazywane z gallery_generator.py       #
+      #  i jest albo "" (dla roota) albo "../" (dla podfolderów)        #
+      ####################################################################
+    -->
+    <link rel="stylesheet" href="../gallery_styles.css" />
+  </head>
+  <body>
+    <div class="container">
+      <!-- TYLKO BREADCRUMB - ścieżka -->
+      <div class="breadcrumb">
+         
+        <a href="../index.html">TRANSPORT</a>
+          
+        <span>/</span>
+          
+        <span>Boeing 777-300</span>
+          
+      </div>
+
+       
+      <div class="section">
+        <h2>🖼️ Pliki z podglądem (1)</h2>
+        <div class="gallery" id="filesWithPreviewsGallery">
+          
+          <div
+            class="gallery-item"
+            style="background-color: #6c757d22; border-color: #6c757d;"
+          >
+            <input
+              type="checkbox"
+              class="gallery-checkbox"
+              data-file="1403254.59e21d4e627f2.rar"
+              data-path="C:\_cloud\TRANSPORT\Boeing 777-300\1403254.59e21d4e627f2.rar"
+              data-type="archive"
+            />
+            
+            <img
+              src="file:///C:/_cloud/TRANSPORT/Boeing 777-300/1403254.59e21d4e627f2 1.jpg"
+              alt="Podgląd dla 1403254.59e21d4e627f2.rar"
+              class="preview-image"
+              data-full-src="file:///C:/_cloud/TRANSPORT/Boeing 777-300/1403254.59e21d4e627f2 1.jpg"
+              loading="lazy"
+            />
+            
+            <p>
+              <a href="file:///C:/_cloud/TRANSPORT/Boeing 777-300/1403254.59e21d4e627f2.rar" title="Otwórz: 1403254.59e21d4e627f2.rar"
+                >1403254.59e21d4e627f2.rar</a
+              >
+            </p>
+            <p class="file-info">50.11 MB</p>
+          </div>
+          
+        </div>
+      </div>
+       
+      <div class="bottom-columns">
+         
+        <div class="right-column">
+          <h2>🎨 Pozostałe obrazy (2)</h2>
+          
+          <ul class="image-list">
+            
+            <li>
+              <div class="file-item">
+                <input
+                  type="checkbox"
+                  class="file-checkbox"
+                  data-file="1403254.59e21d4e627f2 2.jpg"
+                  data-path="C:\_cloud\TRANSPORT\Boeing 777-300\1403254.59e21d4e627f2 2.jpg"
+                  data-basename="1403254"
+                  data-type="image"
+                />
+                <a
+                  href="file:///C:/_cloud/TRANSPORT/Boeing 777-300/1403254.59e21d4e627f2 2.jpg"
+                  title="Otwórz: 1403254.59e21d4e627f2 2.jpg"
+                  data-preview-src="file:///C:/_cloud/TRANSPORT/Boeing 777-300/1403254.59e21d4e627f2 2.jpg"
+                  class="preview-link"
+                  data-type="image"
+                  data-name="1403254.59e21d4e627f2 2.jpg"
+                  >1403254.59e21d4e627f2 2.jpg</a
+                >
+                <span class="file-info"> — 127.49 KB</span>
+                <button
+                  class="delete-image-btn"
+                  data-file-path="C:\_cloud\TRANSPORT\Boeing 777-300\1403254.59e21d4e627f2 2.jpg"
+                  data-file-name="1403254.59e21d4e627f2 2.jpg"
+                  title="Usuń 1403254.59e21d4e627f2 2.jpg do kosza"
+                >
+                  🗑️
+                </button>
+              </div>
+            </li>
+            
+            <li>
+              <div class="file-item">
+                <input
+                  type="checkbox"
+                  class="file-checkbox"
+                  data-file="1403254.59e21d4e627f2.jpg"
+                  data-path="C:\_cloud\TRANSPORT\Boeing 777-300\1403254.59e21d4e627f2.jpg"
+                  data-basename="1403254"
+                  data-type="image"
+                />
+                <a
+                  href="file:///C:/_cloud/TRANSPORT/Boeing 777-300/1403254.59e21d4e627f2.jpg"
+                  title="Otwórz: 1403254.59e21d4e627f2.jpg"
+                  data-preview-src="file:///C:/_cloud/TRANSPORT/Boeing 777-300/1403254.59e21d4e627f2.jpg"
+                  class="preview-link"
+                  data-type="image"
+                  data-name="1403254.59e21d4e627f2.jpg"
+                  >1403254.59e21d4e627f2.jpg</a
+                >
+                <span class="file-info"> — 158.76 KB</span>
+                <button
+                  class="delete-image-btn"
+                  data-file-path="C:\_cloud\TRANSPORT\Boeing 777-300\1403254.59e21d4e627f2.jpg"
+                  data-file-name="1403254.59e21d4e627f2.jpg"
+                  title="Usuń 1403254.59e21d4e627f2.jpg do kosza"
+                >
+                  🗑️
+                </button>
+              </div>
+            </li>
+            
+          </ul>
+          
+        </div>
+        
+      </div>
+       
+      <div class="learning-section">
+        <button id="matchPreviewBtn" class="match-preview-btn" disabled>
+          🎯 Dopasuj podgląd
+        </button>
+        <div id="matchStatus" class="match-status"></div>
+      </div>
+      
+    </div>
+
+    <div class="preview-backdrop" id="previewBackdrop"></div>
+    <div class="preview-modal" id="previewModal">
+      <img src="" alt="Podgląd" id="previewImg" />
+    </div>
+
+    <script>
+      // Przekazanie danych z Pythona do JS dla większej niezawodności
+      // Upewnij się, że `folder_info` zawiera `path_absolute`
+      window.galleryConfig = {
+          currentFolderAbsPath: "null",
+          isRootIndex: false,
+          scannedRootPath: "C:\\_cloud\\TRANSPORT"
+      };
+
+      console.log("Gallery Config from Python:", window.galleryConfig);
+
+      function getCurrentFolder() {
+        if (window.galleryConfig && window.galleryConfig.currentFolderAbsPath) {
+            return window.galleryConfig.currentFolderAbsPath.replace(/\\/g, '/');
+        }
+        console.warn("getCurrentFolder: Fallback, window.galleryConfig.currentFolderAbsPath not available.");
+        return ".";
+      }
+      window.getCurrentFolder = getCurrentFolder;
+
+      document.addEventListener('DOMContentLoaded', function () {
+        console.log('=== ROZPOCZYNAM INICJALIZACJĘ GALERII ===');
+
+        const galleries = [
+          document.getElementById('filesWithPreviewsGallery'),
+        ].filter(Boolean);
+
+        const previewModal = document.getElementById('previewModal');
+        const previewBackdrop = document.getElementById('previewBackdrop');
+        const previewImg = document.getElementById('previewImg');
+        const matchBtn = document.getElementById('matchPreviewBtn');
+        const matchStatus = document.getElementById('matchStatus');
+
+        // Sprawdź czy wszystkie potrzebne elementy są dostępne
+        if (!previewModal || !previewBackdrop || !previewImg) {
+          console.error('Brak wymaganych elementów modalu podglądu:', {
+            previewModal: !!previewModal,
+            previewBackdrop: !!previewBackdrop,
+            previewImg: !!previewImg
+          });
+        }
+
+        console.log('Elementy galerii:', {
+          galleries: galleries.length,
+          previewModal: !!previewModal,
+          previewBackdrop: !!previewBackdrop,
+          previewImg: !!previewImg,
+          matchBtn: !!matchBtn
+        });
+
+        function showPreview(imageSrc) {
+          console.log('showPreview wywołane z:', imageSrc);
+
+          if (!imageSrc) {
+            console.error('Brak źródła obrazu');
+            return;
+          }
+
+          if (!previewModal || !previewBackdrop || !previewImg) {
+            console.error('Brak elementów modal');
+            return;
+          }
+
+          // Najpierw pokazujemy backdrop
+          previewBackdrop.style.display = 'block';
+          previewModal.style.display = 'block';
+
+          // Dajemy czas na wyrenderowanie
+          requestAnimationFrame(() => {
+            previewBackdrop.classList.add('show');
+            previewModal.classList.add('show');
+          });
+
+          // Ustaw źródło obrazu
+          previewImg.src = imageSrc;
+        }
+
+        function hidePreview() {
+          if (!previewModal || !previewBackdrop || !previewImg) return;
+
+          previewModal.classList.remove('show');
+          previewBackdrop.classList.remove('show');
+
+          setTimeout(() => {
+            previewModal.style.display = 'none';
+            previewBackdrop.style.display = 'none';
+            previewImg.src = '';
+          }, 200);
+        }
+
+        const deleteButtons = document.querySelectorAll('.delete-image-btn');
+        deleteButtons.forEach((button) => {
+          button.addEventListener('click', function (e) {
+            e.preventDefault(); e.stopPropagation();
+            const filePath = this.dataset.filePath;
+            const fileName = this.dataset.fileName;
+            if (confirm(`Czy na pewno chcesz usunąć plik "${fileName}" do kosza?`)) {
+              try {
+                if (typeof Storage === 'undefined' || !localStorage) { alert('Funkcja usuwania nie jest dostępna.'); return; }
+                const deleteData = { action: 'deleteFile', filePath: filePath, fileName: fileName, timestamp: new Date().toISOString() };
+                console.log('🗑️ Usuwanie pliku:', deleteData);
+                const deleteKey = 'deleteFile_' + Date.now();
+                localStorage.setItem(deleteKey, JSON.stringify(deleteData));
+                localStorage.setItem('latestDelete', deleteKey);
+                this.textContent = '⏳'; this.disabled = true; this.style.opacity = '0.5';
+                const statusDiv = document.createElement('div');
+                statusDiv.className = 'file-operation-notification warning';
+                statusDiv.textContent = `⏳ Usuwanie "${fileName}"...`;
+                document.body.appendChild(statusDiv);
+                setTimeout(() => { if (statusDiv.parentNode) statusDiv.parentNode.removeChild(statusDiv); }, 5000);
+              } catch (err) { console.error('Błąd usuwania pliku:', err); alert('Wystąpił błąd podczas usuwania.'); }
+            }
+          });
+        });
+
+        galleries.forEach((gallery) => {
+          if (!gallery) return;
+
+          const images = gallery.querySelectorAll('.preview-image');
+          console.log(`Znaleziono ${images.length} obrazów podglądu w galerii`);
+
+          images.forEach((img) => {
+            let hoverTimeout;
+
+            img.addEventListener('mouseenter', function() {
+              const imageSrc = this.dataset.fullSrc || this.src;
+              console.log('MOUSEENTER na obrazie:', imageSrc);
+
+              hoverTimeout = setTimeout(() => {
+                showPreview(imageSrc);
+              }, 2000);
+            });
+
+            img.addEventListener('mouseleave', function() {
+              clearTimeout(hoverTimeout);
+              hidePreview();
+            });
+          });
+        });
+
+        const previewLinks = document.querySelectorAll('.preview-link');
+        console.log(`Znaleziono ${previewLinks.length} linków z podglądem`);
+
+        previewLinks.forEach((link) => {
+          let hoverTimeout;
+
+          link.addEventListener('mouseenter', function() {
+            const previewSrc = this.getAttribute('data-preview-src');
+            console.log('MOUSEENTER na linku:', previewSrc);
+
+            if (previewSrc) {
+              hoverTimeout = setTimeout(() => {
+                showPreview(previewSrc);
+              }, 2000);
+            }
+          });
+
+          link.addEventListener('mouseleave', function() {
+            clearTimeout(hoverTimeout);
+            hidePreview();
+          });
+        });
+
+        previewBackdrop.addEventListener('click', hidePreview);
+        document.addEventListener('keydown', function(e) {
+          if (e.key === 'Escape') {
+            hidePreview();
+          }
+        });
+
+        if (matchBtn) {
+          console.log('=== INICJALIZUJĘ FUNKCJĘ DOPASOWANIA ===');
+
+          let localStorageAvailable = false;
+          try {
+              if (typeof Storage !== 'undefined' && localStorage) {
+                  localStorage.setItem('test','test');
+                  localStorage.removeItem('test');
+                  localStorageAvailable = true;
+                  console.log('localStorage jest dostępny');
+              }
+          } catch (e) {
+              console.warn('localStorage nie jest dostępny:', e);
+          }
+
+          if (!localStorageAvailable) {
+              matchBtn.style.display = 'none';
+              if(matchStatus) matchStatus.textContent = '⚠️ Funkcje uczenia niedostępne.';
+              return;
+          }
+
+          // POPRAWIONY SELEKTOR - wszystkie checkboxy
+          const checkboxes = document.querySelectorAll('input[type="checkbox"]');
+          console.log('=== CHECKBOXY ===');
+          console.log('Wszystkich checkboxów:', checkboxes.length);
+
+          // Debugowanie każdego checkboxa
+          checkboxes.forEach((cb, i) => {
+            console.log(`Checkbox ${i}:`, {
+              file: cb.dataset.file,
+              type: cb.dataset.type,
+              hasGalleryClass: cb.classList.contains('gallery-checkbox'),
+              hasFileClass: cb.classList.contains('file-checkbox')
+            });
+          });
+
+          function updateMatchButton() {
+              console.log('=== AKTUALIZUJĘ STAN PRZYCISKU ===');
+
+              const archiveChecked = [];
+              const imageChecked = [];
+
+              checkboxes.forEach((cb) => {
+                  if (cb.checked) {
+                      const isArchive = cb.dataset.type === 'archive' || cb.classList.contains('gallery-checkbox');
+                      const isImage = cb.dataset.type === 'image';
+
+                      console.log(`Zaznaczony checkbox ${cb.dataset.file}:`, {
+                        type: cb.dataset.type,
+                        isArchive,
+                        isImage,
+                        hasGalleryClass: cb.classList.contains('gallery-checkbox')
+                      });
+
+                      if (isArchive) {
+                          archiveChecked.push(cb);
+                      } else if (isImage) {
+                          imageChecked.push(cb);
+                      }
+                  }
+              });
+
+              console.log('Archiwów zaznaczonych:', archiveChecked.length);
+              console.log('Obrazów zaznaczonych:', imageChecked.length);
+
+              const canMatch = archiveChecked.length === 1 && imageChecked.length === 1;
+              matchBtn.disabled = !canMatch;
+
+              if (matchStatus) {
+                  if (canMatch) {
+                      const archiveName = archiveChecked[0].dataset.file;
+                      const imageName = imageChecked[0].dataset.file;
+                      matchStatus.textContent = `Gotowy: ${archiveName} ↔ ${imageName}`;
+                      console.log('PRZYCISK AKTYWNY - gotowy do dopasowania');
+                  } else if (archiveChecked.length === 0 && imageChecked.length === 0) {
+                      matchStatus.textContent = 'Zaznacz 1 archiwum i 1 obraz';
+                  } else if (archiveChecked.length === 0) {
+                      matchStatus.textContent = 'Zaznacz 1 archiwum';
+                  } else if (imageChecked.length === 0) {
+                      matchStatus.textContent = 'Zaznacz 1 obraz';
+                  } else {
+                      matchStatus.textContent = 'Zaznacz tylko 1 archiwum i 1 obraz';
+                  }
+              }
+          }
+
+          // DODAJ LISTENERY DO WSZYSTKICH CHECKBOXÓW
+          checkboxes.forEach((checkbox, index) => {
+              console.log(`Dodaję listener do checkboxa ${index}:`, checkbox.dataset.file);
+
+              checkbox.addEventListener('change', function () {
+                  console.log(`=== CHECKBOX ZMIENIONY ===`);
+                  console.log('Plik:', this.dataset.file);
+                  console.log('Nowy stan:', this.checked);
+                  console.log('Typ:', this.dataset.type);
+
+                  if (this.checked) {
+                      const currentType = this.dataset.type || (this.classList.contains('gallery-checkbox') ? 'archive' : 'unknown');
+                      console.log('Typ bieżącego checkboxa:', currentType);
+
+                      // Odznacz inne checkboxy tego samego typu
+                      checkboxes.forEach((otherCb) => {
+                          if (otherCb !== this) {
+                              const otherType = otherCb.dataset.type || (otherCb.classList.contains('gallery-checkbox') ? 'archive' : 'unknown');
+                              if (otherType === currentType && otherCb.checked) {
+                                  console.log(`Odznaczam ${otherCb.dataset.file} (ten sam typ)`);
+                                  otherCb.checked = false;
+                              }
+                          }
+                      });
+                  }
+                  updateMatchButton();
+              });
+          });
+
+          matchBtn.addEventListener('click', function () {
+              const archiveCb = Array.from(checkboxes).find(cb => {
+                  return cb.checked && (cb.dataset.type === 'archive' || cb.classList.contains('gallery-checkbox'));
+              });
+              const imageCb = Array.from(checkboxes).find(cb => {
+                  return cb.checked && cb.dataset.type === 'image';
+              });
+
+              if (archiveCb && imageCb) {
+                  // Pobierz basename z nazwy pliku
+                  const getBasename = (filename) => {
+                      const lastDotIndex = filename.lastIndexOf('.');
+                      return lastDotIndex > 0 ? filename.substring(0, lastDotIndex) : filename;
+                  };
+
+                  const matchData = {
+                      archiveFile: archiveCb.dataset.file,
+                      archivePath: archiveCb.dataset.path.replace(/\\/g, '/'),
+                      imageFile: imageCb.dataset.file,
+                      imagePath: imageCb.dataset.path.replace(/\\/g, '/'),
+                      archiveBasename: getBasename(archiveCb.dataset.file),
+                      imageBasename: getBasename(imageCb.dataset.file),
+                      timestamp: new Date().toISOString(),
+                      currentFolder: getCurrentFolder()
+                  };
+
+                  console.log('🎯 Zapisuję dopasowanie:', matchData);
+
+                  const matchKey = 'learningMatch_' + Date.now();
+                  localStorage.setItem(matchKey, JSON.stringify(matchData));
+                  localStorage.setItem('latestLearningMatch', matchKey);
+
+                  if(matchStatus) matchStatus.textContent = '✅ Zapisano! Nauka algorytmu...';
+                  matchBtn.disabled = true;
+                  matchBtn.textContent = '⏳ Przetwarzanie...';
+
+                  // Odznacz checkboxy
+                  archiveCb.checked = false;
+                  imageCb.checked = false;
+
+                  // Przywróć stan przycisku po 3 sekundach
+                  setTimeout(() => {
+                      matchBtn.disabled = false;
+                      matchBtn.textContent = '🎯 Dopasuj podgląd';
+                      if(matchStatus) matchStatus.textContent = '';
+                  }, 3000);
+              }
+          });
+
+          // Inicjalne sprawdzenie
+          updateMatchButton();
+        }
+
+        // Logika dla przywracania rozmiaru kafelków z localStorage (jeśli suwak jest w Pythonie)
+        // Możesz ją usunąć, jeśli rozmiar kafelków jest zarządzany tylko przez suwak w UI Pythona
+        if (typeof localStorage !== 'undefined' && localStorage.getItem('galleryTileSize')) {
+            const savedSize = localStorage.getItem('galleryTileSize');
+            const galleriesToResize = document.querySelectorAll('.gallery');
+            galleriesToResize.forEach(gallery => {
+                gallery.style.gridTemplateColumns = `repeat(auto-fill, minmax(${savedSize}px, 1fr))`;
+            });
+        }
+
+        // Poniższe funkcje (showMoveFilesDialog itp.) są definicjami,
+        // ale nie są wywoływane bezpośrednio z HTML.
+        // Są one dostępne dla Pythona do wywołania poprzez webView.page().runJavaScript("showMoveFilesDialog();")
+        // jeśli przyciski byłyby w HTML. W Twoim przypadku przyciski są w Pythonie,
+        // więc ta część jest bardziej "biblioteką" funkcji dla localStorage.
+
+        let selectedFiles = []; // Zmienna globalna w tym zakresie DOMContentLoaded
+
+        function updateSelectedFiles() {
+          selectedFiles = [];
+          document.querySelectorAll('.gallery-checkbox:checked').forEach(cb => {
+            selectedFiles.push({ type: 'archive_with_preview', name: cb.dataset.file, path: cb.dataset.path, preview: cb.closest('.gallery-item').querySelector('img')?.src || null });
+          });
+          document.querySelectorAll('.file-checkbox:checked[data-type="archive"]').forEach(cb => {
+            selectedFiles.push({ type: 'archive', name: cb.dataset.file, path: cb.dataset.path, basename: cb.dataset.basename });
+          });
+          document.querySelectorAll('.file-checkbox:checked[data-type="image"]').forEach(cb => {
+            selectedFiles.push({ type: 'image', name: cb.dataset.file, path: cb.dataset.path, basename: cb.dataset.basename });
+          });
+          console.log('JS: Wybrane pliki:', selectedFiles);
+        }
+
+        // Te funkcje zapisują dane do localStorage, Python je odczytuje
+        window.jsShowMoveFilesDialog = function() { // Zmieniono nazwę, aby uniknąć konfliktu
+          updateSelectedFiles();
+          if (selectedFiles.length === 0) { alert('Najpierw zaznacz pliki do przeniesienia'); return; }
+          const moveData = { files: selectedFiles };
+          const moveKey = 'moveFiles_' + Date.now();
+          localStorage.setItem(moveKey, JSON.stringify(moveData));
+          localStorage.setItem('latestMoveFiles', moveKey);
+          document.querySelectorAll('.gallery-checkbox, .file-checkbox').forEach(cb => { cb.checked = false; });
+          console.log('JS: Zapisano operację przenoszenia:', moveData);
+        }
+
+        window.jsShowRenameFilesDialog = function() { // Zmieniono nazwę
+          updateSelectedFiles();
+          if (selectedFiles.length === 0) { alert('Najpierw zaznacz pliki do zmiany nazwy'); return; }
+          const archiveFiles = selectedFiles.filter(f => f.type === 'archive' || f.type === 'archive_with_preview');
+          const imageFiles = selectedFiles.filter(f => f.type === 'image');
+          // Zamiast prompt, Python zapyta o nową nazwę
+          // Tutaj tylko przygotowujemy dane
+          if (archiveFiles.length > 0 || imageFiles.length > 0) { // Wystarczy, że coś jest zaznaczone
+              const renameData = { files: selectedFiles, /* newBaseName zostanie dodane przez Pythona */ };
+              const renameKey = 'renameFiles_' + Date.now();
+              localStorage.setItem(renameKey, JSON.stringify(renameData));
+              localStorage.setItem('latestRenameFilesRequest', renameKey); // Inny klucz dla żądania
+              document.querySelectorAll('.gallery-checkbox, .file-checkbox').forEach(cb => { cb.checked = false; });
+              console.log('JS: Zapisano żądanie zmiany nazw:', renameData);
+          } else {
+            alert('Zaznacz pliki, aby zmienić ich nazwy.');
+          }
+        }
+
+        window.jsShowCreateFolderDialog = function() { // Zmieniono nazwę
+          const folderName = prompt('Podaj nazwę nowego folderu:'); // JS może zapytać, albo Python
+          if (folderName && folder_name.trim()) { // Użyj folder_name z prompt
+            const invalidChars = /[<>:"/\\|?*]/;
+            if (invalidChars.test(folder_name.trim())) {
+              alert(`Nazwa folderu zawiera niedozwolone znaki: ${invalidChars.source}`); return;
+            }
+            const createData = { parentFolder: getCurrentFolder(), folderName: folder_name.trim() };
+            const createKey = 'createFolder_' + Date.now();
+            localStorage.setItem(createKey, JSON.stringify(createData));
+            localStorage.setItem('latestCreateFolder', createKey);
+            console.log('JS: Zapisano operację tworzenia folderu:', createData);
+          }
+        }
+
+        // Listener dla checkboxów, aby aktualizować `selectedFiles`
+        document.addEventListener('change', function (e) {
+          if (e.target.matches('.gallery-checkbox, .file-checkbox')) {
+            updateSelectedFiles(); // Aktualizuj przy każdej zmianie zaznaczenia
+          }
+        });
+
+      });
+    </script>
+  </body>
+</html>
