@@ -89,6 +89,17 @@ class GalleryWorker(QThread):
                 gallery_cache_root_dir=self.gallery_cache_root,
             )
             if root_html_path and os.path.exists(root_html_path):
+                # Dodaj nagłówki do pliku HTML
+                with open(root_html_path, "r", encoding="utf-8") as f:
+                    content = f.read()
+                with open(root_html_path, "w", encoding="utf-8") as f:
+                    f.write("<!--\n")
+                    f.write(
+                        "Content-Security-Policy: default-src * 'unsafe-inline' 'unsafe-eval' data: blob:;\n"
+                    )
+                    f.write("Access-Control-Allow-Origin: *;\n")
+                    f.write("-->\n")
+                    f.write(content)
                 self.emit_progress(
                     f"Generowanie galerii zakończone. Główny plik: {root_html_path}"
                 )
@@ -132,6 +143,9 @@ class CustomWebEnginePage(QWebEnginePage):
         settings.setAttribute(
             QWebEngineSettings.WebAttribute.LocalContentCanAccessFileUrls, True
         )
+        settings.setAttribute(
+            QWebEngineSettings.WebAttribute.AllowRunningInsecureContent, True
+        )
 
     def acceptNavigationRequest(self, url, type, isMainFrame):
         scheme = url.scheme()
@@ -144,6 +158,9 @@ class CustomWebEnginePage(QWebEnginePage):
             QDesktopServices.openUrl(url)
             return False
         return super().acceptNavigationRequest(url, type, isMainFrame)
+
+    def javaScriptConsoleMessage(self, level, message, line, source):
+        print(f"JS [{level}]: {message} (line {line}, source: {source})")
 
 
 # --- Klasa AIScannerWorker ---
@@ -417,16 +434,32 @@ class MainWindow(QMainWindow):
         return os.path.join(specific_gallery_output_path, "index.html")
 
     def update_gallery_buttons_state(self):
+        # Sprawdź czy folder roboczy jest ustawiony
+        if not self.current_work_directory:
+            self.open_gallery_button.setEnabled(False)
+            self.clear_gallery_cache_button.setEnabled(False)
+            return
+
+        # Sprawdź cache dla klasycznej galerii
         gallery_index_html_path = self.get_current_gallery_index_html()
         gallery_html_exists = bool(
             gallery_index_html_path and os.path.exists(gallery_index_html_path)
         )
         self.open_gallery_button.setEnabled(gallery_html_exists)
-        specific_gallery_cache_path = self.get_specific_gallery_output_path()
-        gallery_cache_dir_exists = bool(
-            specific_gallery_cache_path and os.path.isdir(specific_gallery_cache_path)
+
+        # Sprawdź cache dla obu typów galerii
+        classic_cache_path = self.get_specific_gallery_output_path()
+        ai_cache_path = self.get_specific_ai_gallery_output_path()
+
+        classic_cache_exists = bool(
+            classic_cache_path and os.path.isdir(classic_cache_path)
         )
-        self.clear_gallery_cache_button.setEnabled(gallery_cache_dir_exists)
+        ai_cache_exists = bool(ai_cache_path and os.path.isdir(ai_cache_path))
+
+        # Przycisk czyszczenia cache jest aktywny jeśli istnieje którykolwiek folder cache
+        self.clear_gallery_cache_button.setEnabled(
+            classic_cache_exists or ai_cache_exists
+        )
 
     def update_status_label(self):
         if self.current_work_directory:
@@ -648,41 +681,81 @@ class MainWindow(QMainWindow):
             self.log_message("Błąd ładowania strony galerii.", level="ERROR")
 
     def clear_current_gallery_cache(self):
-        gallery_path_to_clear = self.get_specific_gallery_output_path()
-        if not gallery_path_to_clear or not os.path.isdir(gallery_path_to_clear):
-            QMessageBox.information(self, "Brak cache", "Nie znaleziono folderu cache.")
+        if not self.current_work_directory:
+            QMessageBox.warning(self, "Błąd", "Najpierw wybierz folder roboczy!")
             return
+
+        # Pobierz ścieżki do obu folderów cache
+        classic_cache_path = self.get_specific_gallery_output_path()
+        ai_cache_path = self.get_specific_ai_gallery_output_path()
+
+        # Sprawdź czy którykolwiek folder cache istnieje
+        classic_exists = classic_cache_path and os.path.isdir(classic_cache_path)
+        ai_exists = ai_cache_path and os.path.isdir(ai_cache_path)
+
+        if not classic_exists and not ai_exists:
+            QMessageBox.information(
+                self, "Brak cache", "Nie znaleziono folderów cache."
+            )
+            return
+
+        # Przygotuj komunikat potwierdzenia
+        cache_paths = []
+        if classic_exists:
+            cache_paths.append(f"Klasyczny: {classic_cache_path}")
+        if ai_exists:
+            cache_paths.append(f"AI: {ai_cache_path}")
+
         reply = QMessageBox.question(
             self,
             "Potwierdzenie",
-            f"Usunąć cache dla:\n{self.current_work_directory}\n({gallery_path_to_clear})?",
+            f"Usunąć cache dla:\n{self.current_work_directory}\n\nFoldery do usunięcia:\n"
+            + "\n".join(cache_paths),
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.No,
         )
+
         if reply == QMessageBox.StandardButton.Yes:
             try:
+                # Sprawdź aktualny URL i wyczyść widok jeśli potrzebne
                 current_url = self.web_view.url().toLocalFile()
-                if current_url and current_url.startswith(
-                    os.path.abspath(gallery_path_to_clear)
-                ):
-                    self.web_view.setHtml(
-                        "<html><body><p>Cache usunięty.</p></body></html>"
+                if current_url:
+                    if (
+                        classic_exists
+                        and current_url.startswith(os.path.abspath(classic_cache_path))
+                    ) or (
+                        ai_exists
+                        and current_url.startswith(os.path.abspath(ai_cache_path))
+                    ):
+                        self.web_view.setHtml(
+                            "<html><body><p>Cache usunięty.</p></body></html>"
+                        )
+
+                # Usuń oba foldery cache jeśli istnieją
+                if classic_exists:
+                    shutil.rmtree(classic_cache_path)
+                    self.log_message(
+                        f"Usunięto folder cache klasycznej galerii: {classic_cache_path}"
                     )
-                shutil.rmtree(gallery_path_to_clear)
-                self.log_message(
-                    f"Usunięto folder cache galerii: {gallery_path_to_clear}"
-                )
+
+                if ai_exists:
+                    shutil.rmtree(ai_cache_path)
+                    self.log_message(
+                        f"Usunięto folder cache galerii AI: {ai_cache_path}"
+                    )
+
                 self.current_gallery_root_html = None
+                self.current_ai_gallery_root_html = None
                 self.update_gallery_buttons_state()
                 QMessageBox.information(
-                    self, "Cache usunięty", "Folder cache galerii został usunięty."
+                    self, "Cache usunięty", "Foldery cache galerii zostały usunięte."
                 )
             except Exception as e:
                 self.log_message(
                     f"Błąd podczas usuwania cache galerii: {e}", level="ERROR"
                 )
                 QMessageBox.warning(
-                    self, "Błąd usuwania", f"Nie udało się usunąć folderu cache: {e}"
+                    self, "Błąd usuwania", f"Nie udało się usunąć folderów cache: {e}"
                 )
 
     def closeEvent(self, event):
