@@ -284,8 +284,16 @@
           const images = gallery.querySelectorAll('.preview-image');
           images.forEach((img) => {
             let hoverTimeout;
-            img.addEventListener('mouseenter', function () { hoverTimeout = setTimeout(() => { showPreview(this.src); }, 1000); });
-            img.addEventListener('mouseleave', function () { clearTimeout(hoverTimeout); });
+            img.addEventListener('mouseenter', function () {
+              hoverTimeout = setTimeout(() => {
+                console.log('Hover na obrazie, pokazuję podgląd');
+                showPreview(this.src);
+              }, 2000); // ZMIENIONO NA 2 SEKUNDY
+            });
+            img.addEventListener('mouseleave', function () {
+              clearTimeout(hoverTimeout);
+              hidePreview(); // DODANO - ukryj od razu po opuszczeniu
+            });
           });
         });
 
@@ -294,9 +302,17 @@
           let hoverTimeout;
           link.addEventListener('mouseenter', function () {
             const previewSrc = this.getAttribute('data-preview-src');
-            if (previewSrc) { hoverTimeout = setTimeout(() => { showPreview(previewSrc); }, 1000); }
+            if (previewSrc) {
+              hoverTimeout = setTimeout(() => {
+                console.log('Hover na linku, pokazuję podgląd:', previewSrc);
+                showPreview(previewSrc);
+              }, 2000); // ZMIENIONO NA 2 SEKUNDY
+            }
           });
-          link.addEventListener('mouseleave', function () { clearTimeout(hoverTimeout); });
+          link.addEventListener('mouseleave', function () {
+            clearTimeout(hoverTimeout);
+            hidePreview(); // DODANO - ukryj od razu po opuszczeniu
+          });
         });
 
         previewBackdrop.addEventListener('click', hidePreview);
@@ -321,15 +337,26 @@
               return;
           }
 
-          const checkboxes = document.querySelectorAll('.file-checkbox, .gallery-checkbox');
+          const checkboxes = document.querySelectorAll('input[type="checkbox"]');
+          console.log('Znaleziono checkboxów:', checkboxes.length);
 
           function updateMatchButton() {
+              console.log('Aktualizuję stan przycisku dopasowania');
+
               const archiveChecked = Array.from(checkboxes).filter(cb => {
-                  return cb.checked && (cb.dataset.type === 'archive' || cb.classList.contains('gallery-checkbox'));
+                  const isArchive = cb.dataset.type === 'archive' || cb.classList.contains('gallery-checkbox');
+                  console.log(`Checkbox ${cb.dataset.file}: checked=${cb.checked}, isArchive=${isArchive}`);
+                  return cb.checked && isArchive;
               });
+
               const imageChecked = Array.from(checkboxes).filter(cb => {
-                  return cb.checked && cb.dataset.type === 'image';
+                  const isImage = cb.dataset.type === 'image';
+                  console.log(`Checkbox ${cb.dataset.file}: checked=${cb.checked}, isImage=${isImage}`);
+                  return cb.checked && isImage;
               });
+
+              console.log('Archiwów zaznaczonych:', archiveChecked.length);
+              console.log('Obrazów zaznaczonych:', imageChecked.length);
 
               const canMatch = archiveChecked.length === 1 && imageChecked.length === 1;
               matchBtn.disabled = !canMatch;
