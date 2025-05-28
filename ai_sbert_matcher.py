@@ -14,6 +14,8 @@ import numpy as np
 from sentence_transformers import SentenceTransformer
 from sklearn.metrics.pairwise import cosine_similarity
 
+import config_manager
+
 # Konfiguracja loggera
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -240,6 +242,21 @@ class SBERTFileMatcher:
         return analysis
 
 
+def get_work_directory_from_config():
+    """Pobiera folder roboczy z konfiguracji lub None jeśli nie ustawiony"""
+    try:
+        work_dir = config_manager.get_work_directory()
+        if work_dir and os.path.isdir(work_dir):
+            logger.info(f"📁 Znaleziono folder roboczy w konfiguracji: {work_dir}")
+            return work_dir
+        else:
+            logger.warning("⚠️ Brak prawidłowego folderu roboczego w konfiguracji")
+            return None
+    except Exception as e:
+        logger.error(f"❌ Błąd pobierania folderu roboczego z konfiguracji: {e}")
+        return None
+
+
 class AIFolderProcessor:
     """
     Klasa do przetwarzania folderów i dodawania danych AI do index.json
@@ -247,6 +264,10 @@ class AIFolderProcessor:
 
     def __init__(self):
         self.matcher = SBERTFileMatcher()
+        # Pobierz folder roboczy z konfiguracji
+        self.work_directory = get_work_directory_from_config()
+        if not self.work_directory:
+            logger.warning("Brak folderu roboczego w konfiguracji")
 
     def load_existing_index(self, folder_path: str) -> Dict:
         """
@@ -304,21 +325,36 @@ class AIFolderProcessor:
 
         return archive_files, image_files
 
-    def process_folder(self, folder_path: str) -> bool:
+    def process_folder(self, folder_path: str, progress_callback=None) -> bool:
         """
         Przetwarza jeden folder - dodaje dane AI do index.json
         """
-        logger.info(f"🔍 Przetwarzanie folderu: {folder_path}")
+        logger.info(f"🔍 Przetwarzanie AI folderu: {folder_path}")
+
+        if progress_callback:
+            progress_callback(f"🔍 Przetwarzanie AI folderu: {folder_path}")
 
         if not os.path.isdir(folder_path):
             logger.error(f"❌ Ścieżka nie jest folderem: {folder_path}")
+            return False
+
+        # Sprawdź czy istnieje index.json (folder musi być już przeskanowany)
+        index_json_path = os.path.join(folder_path, "index.json")
+        if not os.path.exists(index_json_path):
+            logger.warning(f"⚠️ Brak index.json w folderze: {folder_path}")
+            if progress_callback:
+                progress_callback(f"⚠️ Brak index.json w folderze: {folder_path}")
             return False
 
         # Zbierz pliki
         archive_files, image_files = self.collect_files_in_folder(folder_path)
 
         if not archive_files and not image_files:
-            logger.info(f"⚠️ Folder pusty (brak plików do analizy): {folder_path}")
+            logger.info(f"⚠️ Folder pusty (brak plików do analizy AI): {folder_path}")
+            if progress_callback:
+                progress_callback(
+                    f"⚠️ Folder pusty (brak plików do analizy AI): {folder_path}"
+                )
             return True
 
         logger.info(
@@ -327,6 +363,18 @@ class AIFolderProcessor:
 
         # Załaduj istniejący index.json
         index_data = self.load_existing_index(folder_path)
+
+        # Sprawdź czy AI już przetwarzało ten folder
+        if "AI_processing_date" in index_data:
+            logger.info(f"🔄 Aktualizuję istniejące dane AI dla: {folder_path}")
+            if progress_callback:
+                progress_callback(
+                    f"🔄 Aktualizuję istniejące dane AI dla: {folder_path}"
+                )
+        else:
+            logger.info(f"🆕 Pierwsze przetwarzanie AI dla: {folder_path}")
+            if progress_callback:
+                progress_callback(f"🆕 Pierwsze przetwarzanie AI dla: {folder_path}")
 
         # Jeśli nie ma podstawowej struktury, utwórz ją
         if "folder_info" not in index_data:
@@ -354,12 +402,17 @@ class AIFolderProcessor:
         # Znajdź dopasowania AI
         if archive_files and image_files:
             logger.info("🤖 Uruchamiam analizę AI...")
+            if progress_callback:
+                progress_callback("🤖 Uruchamiam analizę AI...")
+
             start_time = time.time()
 
             matches = self.matcher.find_best_matches(archive_files, image_files)
 
             ai_time = time.time() - start_time
             logger.info(f"⏱️ Analiza AI zakończona w {ai_time:.2f}s")
+            if progress_callback:
+                progress_callback(f"⏱️ Analiza AI zakończona w {ai_time:.2f}s")
 
             ai_data["AI_matches"] = matches
             ai_data["AI_statistics"] = {
@@ -385,6 +438,9 @@ class AIFolderProcessor:
 
             ai_data["AI_detailed_analysis_samples"] = detailed_analyses
 
+            if progress_callback:
+                progress_callback(f"✅ Znaleziono {len(matches)} dopasowań AI")
+
         else:
             ai_data["AI_matches"] = []
             ai_data["AI_statistics"] = {
@@ -403,11 +459,16 @@ class AIFolderProcessor:
 
         return True
 
-    def process_folder_recursive(self, root_folder_path: str):
+    def process_folder_recursive(self, root_folder_path: str, progress_callback=None):
         """
         Przetwarza folder rekurencyjnie (łącznie z podfolderami)
         """
-        logger.info(f"🚀 Rozpoczynam rekurencyjne przetwarzanie: {root_folder_path}")
+        logger.info(f"🚀 Rozpoczynam rekurencyjne przetwarzanie AI: {root_folder_path}")
+
+        if progress_callback:
+            progress_callback(
+                f"🚀 Rozpoczynam rekurencyjne przetwarzanie AI: {root_folder_path}"
+            )
 
         processed_folders = 0
         error_folders = 0
@@ -417,50 +478,110 @@ class AIFolderProcessor:
             if os.path.islink(root):
                 continue
 
-            logger.info(f"📁 Folder: {root}")
+            # Sprawdź czy folder zawiera index.json (został już przeskanowany)
+            index_json_path = os.path.join(root, "index.json")
+            if not os.path.exists(index_json_path):
+                logger.debug(f"⏭️ Pomijam folder bez index.json: {root}")
+                continue
 
-            if self.process_folder(root):
+            logger.info(f"📁 Przetwarzam AI dla folderu: {root}")
+            if progress_callback:
+                progress_callback(f"📁 Przetwarzam AI dla folderu: {root}")
+
+            if self.process_folder(root, progress_callback):
                 processed_folders += 1
             else:
                 error_folders += 1
 
-        logger.info(
-            f"✅ Przetwarzanie zakończone: {processed_folders} folderów OK, {error_folders} błędów"
-        )
+        success_msg = f"✅ Przetwarzanie AI zakończone: {processed_folders} folderów OK, {error_folders} błędów"
+        logger.info(success_msg)
+        if progress_callback:
+            progress_callback(success_msg)
+
+        return processed_folders > 0
+
+    def start_ai_processing(self, progress_callback=None):
+        """Rozpoczyna przetwarzanie AI od folderu roboczego z konfiguracji"""
+        if not self.work_directory:
+            logger.error("Brak folderu roboczego w konfiguracji")
+            if progress_callback:
+                progress_callback("❌ Brak folderu roboczego w konfiguracji")
+            return False
+
+        if not os.path.isdir(self.work_directory):
+            logger.error(f"Folder roboczy nie istnieje: {self.work_directory}")
+            if progress_callback:
+                progress_callback(
+                    f"❌ Folder roboczy nie istnieje: {self.work_directory}"
+                )
+            return False
+
+        logger.info(f"🤖 Rozpoczynam przetwarzanie AI dla: {self.work_directory}")
+        if progress_callback:
+            progress_callback(
+                f"🤖 Rozpoczynam przetwarzanie AI dla: {self.work_directory}"
+            )
+
+        return self.process_folder_recursive(self.work_directory, progress_callback)
 
 
 def main():
     """
-    Funkcja testowa
+    Funkcja główna - automatycznie pobiera folder roboczy z konfiguracji
     """
-    print("🤖 AI SBERT File Matcher - Test")
-    print("=" * 50)
+    print("🤖 AI SBERT File Matcher - Automatyczne przetwarzanie")
+    print("=" * 60)
 
-    # Ścieżka do testowania - ZMIEŃ NA SWOJĄ
-    test_folder = input("Podaj ścieżkę do folderu testowego: ").strip()
-
-    if not test_folder:
-        # Domyślna ścieżka testowa
-        test_folder = "./test_ai_matching"
-        print(f"Używam domyślnej ścieżki: {test_folder}")
-
-    if not os.path.exists(test_folder):
-        print(f"❌ Folder nie istnieje: {test_folder}")
-        return
-
-    # Utwórz procesor i uruchom
+    # Utwórz procesor i sprawdź konfigurację
     processor = AIFolderProcessor()
 
-    # Zapytaj czy rekurencyjnie
-    recursive = input("Przetwarzać rekurencyjnie? (y/n): ").strip().lower()
+    if not processor.work_directory:
+        print("❌ Brak folderu roboczego w konfiguracji!")
+        print("💡 Uruchom najpierw główną aplikację i ustaw folder roboczy.")
+        return
 
-    if recursive == "y":
-        processor.process_folder_recursive(test_folder)
+    print(f"📁 Folder roboczy z konfiguracji: {processor.work_directory}")
+
+    if not os.path.exists(processor.work_directory):
+        print(f"❌ Folder roboczy nie istnieje: {processor.work_directory}")
+        return
+
+    # Zapytaj o tryb przetwarzania
+    print("\n🔄 Tryby przetwarzania:")
+    print("1. Automatyczne (cały folder roboczy)")
+    print("2. Konkretny folder")
+    print("3. Wyjście")
+
+    choice = input("\nWybierz opcję (1-3): ").strip()
+
+    if choice == "1":
+        # Automatyczne przetwarzanie całego folderu roboczego
+        print(f"\n🚀 Rozpoczynam automatyczne przetwarzanie AI...")
+        processor.start_ai_processing(print)
+
+    elif choice == "2":
+        # Konkretny folder
+        test_folder = input("Podaj ścieżkę do konkretnego folderu: ").strip()
+        if not test_folder:
+            print("❌ Nie podano ścieżki")
+            return
+
+        if not os.path.exists(test_folder):
+            print(f"❌ Folder nie istnieje: {test_folder}")
+            return
+
+        print(f"🔍 Przetwarzam konkretny folder: {test_folder}")
+        processor.process_folder_recursive(test_folder, print)
+
+    elif choice == "3":
+        print("👋 Do widzenia!")
+        return
     else:
-        processor.process_folder(test_folder)
+        print("❌ Nieprawidłowy wybór")
+        return
 
-    print("\n🎉 Test zakończony! Sprawdź pliki index.json w folderach.")
-    print("Wyszukaj klucze zaczynające się od 'AI_' aby zobaczyć wyniki.")
+    print("\n🎉 Przetwarzanie AI zakończone! Sprawdź pliki index.json w folderach.")
+    print("🔍 Wyszukaj klucze zaczynające się od 'AI_' aby zobaczyć wyniki.")
 
 
 if __name__ == "__main__":

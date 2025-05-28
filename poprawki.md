@@ -1,195 +1,300 @@
-Analizując kod, widzę problem z funkcjonalnością usuwania plików. Oto główne zmiany potrzebne do naprawienia tej funkcji:
-Zmiany w pliku main.py
-1. W funkcji __init__ klasy MainWindow
-Plik: main.py
-Funkcja: MainWindow.__init__
-Zmiana: Dodaj konfigurację timera do sprawdzania operacji usuwania plików
+Zmiany w pliku ai_sbert_matcher.py
+1. Dodanie importu config_manager
+Plik: ai_sbert_matcher.py
+Sekcja: Importy na początku pliku
+Proponowany kod:
+pythonimport config_manager  # Dodaj po linii z innymi importami
+2. Modyfikacja klasy AIFolderProcessor - konstruktor
+Plik: ai_sbert_matcher.py
+Funkcja: AIFolderProcessor.__init__
+Proponowany kod:
 pythondef __init__(self):
-    super().__init__()
-    # ... istniejący kod ...
+    self.matcher = SBERTFileMatcher()
+    # Pobierz folder roboczy z konfiguracji
+    self.work_directory = config_manager.get_work_directory()
+    if not self.work_directory:
+        logger.warning("Brak folderu roboczego w konfiguracji")
+3. Nowa funkcja start_ai_processing
+Plik: ai_sbert_matcher.py
+Funkcja: Nowa funkcja w klasie AIFolderProcessor
+Proponowany kod:
+pythondef start_ai_processing(self, progress_callback=None):
+    """Rozpoczyna przetwarzanie AI od folderu roboczego z konfiguracji"""
+    if not self.work_directory:
+        logger.error("Brak folderu roboczego w konfiguracji")
+        if progress_callback:
+            progress_callback("❌ Brak folderu roboczego w konfiguracji")
+        return False
     
-    # Dodaj te linie po setup_learning_bridge()
-    self.setup_file_operations_bridge()
+    if not os.path.isdir(self.work_directory):
+        logger.error(f"Folder roboczy nie istnieje: {self.work_directory}")
+        if progress_callback:
+            progress_callback(f"❌ Folder roboczy nie istnieje: {self.work_directory}")
+        return False
     
-    # ... reszta kodu ...
-2. Dodaj nową funkcję setup_file_operations_bridge
-Plik: main.py
-Funkcja: Nowa funkcja w klasie MainWindow
-Kod do dodania:
-pythondef setup_file_operations_bridge(self):
-    """Konfiguruje mostek do komunikacji z JavaScript dla operacji na plikach"""
-    self.file_operations_timer = QTimer()
-    self.file_operations_timer.timeout.connect(self.check_for_file_operations)
-    self.file_operations_timer.start(500)  # Co pół sekundy
-3. Dodaj funkcję check_for_file_operations
-Plik: main.py
-Funkcja: Nowa funkcja w klasie MainWindow
-Kod do dodania:
-pythondef check_for_file_operations(self):
-    """Sprawdza czy są nowe operacje na plikach do wykonania"""
-    try:
-        # Sprawdź usuwanie plików
-        js_code_delete = """
-        (function() {
-            const latestKey = localStorage.getItem('latestDelete');
-            if (!latestKey) return null;
-            
-            const deleteData = localStorage.getItem(latestKey);
-            localStorage.removeItem(latestKey);
-            localStorage.removeItem('latestDelete');
-            return deleteData;
-        })();
-        """
-        
-        self.web_view.page().runJavaScript(js_code_delete, self.handle_file_deletion)
-        
-    except Exception as e:
-        print(f"❌ Błąd check_for_file_operations: {e}")
-4. Napraw funkcję handle_file_deletion
-Plik: main.py
-Funkcja: MainWindow.handle_file_deletion
-Kod do zastąpienia:
-pythondef handle_file_deletion(self, result):
-    """Obsługuje żądanie usunięcia pliku"""
-    try:
-        if not result:
-            return
+    logger.info(f"🤖 Rozpoczynam przetwarzanie AI dla: {self.work_directory}")
+    if progress_callback:
+        progress_callback(f"🤖 Rozpoczynam przetwarzanie AI dla: {self.work_directory}")
+    
+    return self.process_folder_recursive(self.work_directory, progress_callback)
+4. Modyfikacja process_folder_recursive
+Plik: ai_sbert_matcher.py
+Funkcja: AIFolderProcessor.process_folder_recursive
+Proponowany kod:
+pythondef process_folder_recursive(self, root_folder_path, progress_callback=None):
+    """
+    Przetwarza folder rekurencyjnie (łącznie z podfolderami)
+    """
+    logger.info(f"🚀 Rozpoczynam rekurencyjne przetwarzanie AI: {root_folder_path}")
+    
+    if progress_callback:
+        progress_callback(f"🚀 Rozpoczynam rekurencyjne przetwarzanie AI: {root_folder_path}")
 
-        delete_data = json.loads(result)
-        if not delete_data:
-            return
+    processed_folders = 0
+    error_folders = 0
 
-        file_path = delete_data.get("filePath")  # Zmieniono z file_path na filePath
-        file_name = delete_data.get("fileName")  # Zmieniono z file_name na fileName
-        
-        if not file_path or not os.path.exists(file_path):
-            print(f"❌ Plik nie istnieje: {file_path}")
-            return
+    for root, dirs, files in os.walk(root_folder_path):
+        # Pomiń linki symboliczne
+        if os.path.islink(root):
+            continue
 
-        print(f"🗑️ Usuwanie pliku: {file_name} ({file_path})")
+        # Sprawdź czy folder zawiera index.json (został już przeskanowany)
+        index_json_path = os.path.join(root, "index.json")
+        if not os.path.exists(index_json_path):
+            logger.debug(f"⏭️ Pomijam folder bez index.json: {root}")
+            continue
 
-        # Usuń plik do kosza
-        self.delete_file_to_trash(file_path)
+        logger.info(f"📁 Przetwarzam AI dla folderu: {root}")
+        if progress_callback:
+            progress_callback(f"📁 Przetwarzam AI dla folderu: {root}")
 
-    except Exception as e:
-        print(f"❌ Błąd handle_file_deletion: {e}")
-        QMessageBox.critical(self, "Błąd", f"Błąd usuwania pliku: {e}")
-5. Napraw funkcję delete_file_to_trash
-Plik: main.py
-Funkcja: MainWindow.delete_file_to_trash
-Kod do zastąpienia:
-pythondef delete_file_to_trash(self, file_path):
-    """Usuwa plik do kosza"""
-    try:
-        if not file_path or not os.path.exists(file_path):
-            print(f"❌ Plik nie istnieje: {file_path}")
-            return
-
-        # Usuń do kosza
-        send2trash.send2trash(file_path)
-        
-        file_name = os.path.basename(file_path)
-        print(f"✅ Usunięto do kosza: {file_name}")
-        self.log_message(f"✅ Usunięto do kosza: {file_name}")
-
-        # Odśwież galerię po usunięciu
-        folder_path = os.path.dirname(file_path)
-        self.rescan_and_rebuild_after_deletion(folder_path)
-
-    except Exception as e:
-        print(f"❌ Błąd delete_file_to_trash: {e}")
-        QMessageBox.critical(self, "Błąd", f"Błąd usuwania pliku do kosza: {e}")
-6. Napraw funkcję rescan_and_rebuild_after_deletion
-Plik: main.py
-Funkcja: MainWindow.rescan_and_rebuild_after_deletion
-Kod do zastąpienia:
-pythondef rescan_and_rebuild_after_deletion(self, folder_path):
-    """Przeskanowuje i przebudowuje galerię po usunięciu"""
-    try:
-        if not folder_path or not os.path.exists(folder_path):
-            print(f"❌ Folder nie istnieje: {folder_path}")
-            return
-
-        print(f"🔄 Odświeżanie galerii po usunięciu z folderu: {folder_path}")
-
-        def scan_and_rebuild():
-            try:
-                # Skanuj folder
-                scanner_logic.start_scanning(folder_path, lambda msg: print(f"📁 {msg}"))
-                
-                # Przebuduj galerię po skanowaniu
-                QTimer.singleShot(100, self.rebuild_gallery_after_deletion)
-
-            except Exception as e:
-                print(f"❌ Błąd w scan_and_rebuild: {e}")
-
-        # Uruchom w wątku z opóźnieniem
-        QTimer.singleShot(500, scan_and_rebuild)
-
-    except Exception as e:
-        print(f"❌ Błąd rescan_and_rebuild_after_deletion: {e}")
-7. Napraw funkcję rebuild_gallery_after_deletion
-Plik: main.py
-Funkcja: MainWindow.rebuild_gallery_after_deletion
-Kod do zastąpienia:
-pythondef rebuild_gallery_after_deletion(self):
-    """Przebudowuje galerię po usunięciu"""
-    try:
-        if not self.current_work_directory:
-            return
-
-        print(f"🔄 Przebudowywanie galerii po usunięciu")
-        
-        # Sprawdź czy nie ma już działających wątków
-        if (self.scanner_thread and self.scanner_thread.isRunning()) or \
-           (self.gallery_thread and self.gallery_thread.isRunning()):
-            print("⏳ Inne operacje w toku, pomijam przebudowę")
-            return
-
-        # Uruchom generator galerii
-        self.gallery_thread = GalleryWorker(
-            self.current_work_directory, self.GALLERY_CACHE_DIR
-        )
-        self.gallery_thread.progress_signal.connect(lambda msg: print(f"🏗️ {msg}"))
-        self.gallery_thread.finished_signal.connect(self.on_gallery_rebuilt_after_deletion)
-        self.gallery_thread.start()
-
-    except Exception as e:
-        print(f"❌ Błąd rebuild_gallery_after_deletion: {e}")
-8. Dodaj funkcję on_gallery_rebuilt_after_deletion
-Plik: main.py
-Funkcja: Nowa funkcja w klasie MainWindow
-Kod do dodania:
-pythondef on_gallery_rebuilt_after_deletion(self, root_html_path):
-    """Obsługuje zakończenie przebudowy galerii po usunięciu"""
-    try:
-        if root_html_path:
-            self.current_gallery_root_html = root_html_path
-            print(f"✅ Galeria przebudowana po usunięciu: {root_html_path}")
-            
-            # Odśwież widok po krótkim opóźnieniu
-            QTimer.singleShot(1000, self.show_gallery_in_app)
+        if self.process_folder(root, progress_callback):
+            processed_folders += 1
         else:
-            print("❌ Nie udało się przebudować galerii po usunięciu")
+            error_folders += 1
 
+    success_msg = f"✅ Przetwarzanie AI zakończone: {processed_folders} folderów OK, {error_folders} błędów"
+    logger.info(success_msg)
+    if progress_callback:
+        progress_callback(success_msg)
+    
+    return processed_folders > 0
+5. Modyfikacja process_folder
+Plik: ai_sbert_matcher.py
+Funkcja: AIFolderProcessor.process_folder
+Proponowany kod:
+pythondef process_folder(self, folder_path, progress_callback=None):
+    """
+    Przetwarza jeden folder - dodaje dane AI do index.json
+    """
+    logger.info(f"🔍 Przetwarzanie AI folderu: {folder_path}")
+
+    if progress_callback:
+        progress_callback(f"🔍 Przetwarzanie AI folderu: {folder_path}")
+
+    if not os.path.isdir(folder_path):
+        logger.error(f"❌ Ścieżka nie jest folderem: {folder_path}")
+        return False
+
+    # Sprawdź czy istnieje index.json (folder musi być już przeskanowany)
+    index_json_path = os.path.join(folder_path, "index.json")
+    if not os.path.exists(index_json_path):
+        logger.warning(f"⚠️ Brak index.json w folderze: {folder_path}")
+        if progress_callback:
+            progress_callback(f"⚠️ Brak index.json w folderze: {folder_path}")
+        return False
+
+    # Zbierz pliki
+    archive_files, image_files = self.collect_files_in_folder(folder_path)
+
+    if not archive_files and not image_files:
+        logger.info(f"⚠️ Folder pusty (brak plików do analizy AI): {folder_path}")
+        if progress_callback:
+            progress_callback(f"⚠️ Folder pusty (brak plików do analizy AI): {folder_path}")
+        return True
+
+    logger.info(f"📊 Znaleziono: {len(archive_files)} archiwów, {len(image_files)} obrazów")
+
+    # Załaduj istniejący index.json
+    index_data = self.load_existing_index(folder_path)
+
+    # Sprawdź czy AI już przetwarzało ten folder
+    if "AI_processing_date" in index_data:
+        logger.info(f"🔄 Aktualizuję istniejące dane AI dla: {folder_path}")
+        if progress_callback:
+            progress_callback(f"🔄 Aktualizuję istniejące dane AI dla: {folder_path}")
+    else:
+        logger.info(f"🆕 Pierwsze przetwarzanie AI dla: {folder_path}")
+        if progress_callback:
+            progress_callback(f"🆕 Pierwsze przetwarzanie AI dla: {folder_path}")
+
+    # Jeśli nie ma podstawowej struktury, utwórz ją
+    if "folder_info" not in index_data:
+        index_data["folder_info"] = {
+            "path": os.path.abspath(folder_path),
+            "scan_date": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        }
+
+    # Dodaj sekcję AI
+    ai_data = {
+        "AI_processing_date": datetime.now().isoformat(),
+        "AI_model_info": {
+            "name": "sentence-transformers/all-MiniLM-L6-v2",
+            "type": "SBERT",
+            "version": "1.0",
+        },
+        "AI_file_analysis": {
+            "total_archive_files": len(archive_files),
+            "total_image_files": len(image_files),
+            "archive_files": archive_files,
+            "image_files": image_files,
+        },
+    }
+
+    # Znajdź dopasowania AI
+    if archive_files and image_files:
+        logger.info("🤖 Uruchamiam analizę AI...")
+        if progress_callback:
+            progress_callback("🤖 Uruchamiam analizę AI...")
+        
+        start_time = time.time()
+
+        matches = self.matcher.find_best_matches(archive_files, image_files)
+
+        ai_time = time.time() - start_time
+        logger.info(f"⏱️ Analiza AI zakończona w {ai_time:.2f}s")
+        if progress_callback:
+            progress_callback(f"⏱️ Analiza AI zakończona w {ai_time:.2f}s")
+
+        ai_data["AI_matches"] = matches
+        ai_data["AI_statistics"] = {
+            "total_possible_pairs": len(archive_files) * len(image_files),
+            "found_matches": len(matches),
+            "match_rate": len(matches) / len(archive_files) if archive_files else 0,
+            "processing_time_seconds": ai_time,
+            "high_confidence_matches": len(
+                [m for m in matches if m["confidence_level"] == "HIGH"]
+            ),
+            "medium_confidence_matches": len(
+                [m for m in matches if m["confidence_level"] == "MEDIUM"]
+            ),
+        }
+
+        # Dodaj szczegółowe analizy dla najlepszych dopasowań
+        detailed_analyses = []
+        for match in matches[:3]:  # Tylko 3 najlepsze dla oszczędności miejsca
+            analysis = self.matcher.analyze_similarity_details(
+                match["archive_file"], match["image_file"]
+            )
+            detailed_analyses.append(analysis)
+
+        ai_data["AI_detailed_analysis_samples"] = detailed_analyses
+
+        if progress_callback:
+            progress_callback(f"✅ Znaleziono {len(matches)} dopasowań AI")
+
+    else:
+        ai_data["AI_matches"] = []
+        ai_data["AI_statistics"] = {
+            "total_possible_pairs": 0,
+            "found_matches": 0,
+            "match_rate": 0,
+            "reason": "Brak plików archiwów lub obrazów do dopasowania",
+        }
+
+    # Dodaj dane AI do index_data
+    for key, value in ai_data.items():
+        index_data[key] = value
+
+    # Zapisz plik
+    self.save_index_with_ai_data(folder_path, index_data)
+
+    return True
+6. Modyfikacja funkcji main
+Plik: ai_sbert_matcher.py
+Funkcja: main
+Proponowany kod:
+pythondef main():
+    """
+    Funkcja główna - automatycznie pobiera folder roboczy z konfiguracji
+    """
+    print("🤖 AI SBERT File Matcher - Automatyczne przetwarzanie")
+    print("=" * 60)
+
+    # Utwórz procesor i sprawdź konfigurację
+    processor = AIFolderProcessor()
+    
+    if not processor.work_directory:
+        print("❌ Brak folderu roboczego w konfiguracji!")
+        print("💡 Uruchom najpierw główną aplikację i ustaw folder roboczy.")
+        return
+
+    print(f"📁 Folder roboczy z konfiguracji: {processor.work_directory}")
+
+    if not os.path.exists(processor.work_directory):
+        print(f"❌ Folder roboczy nie istnieje: {processor.work_directory}")
+        return
+
+    # Zapytaj o tryb przetwarzania
+    print("\n🔄 Tryby przetwarzania:")
+    print("1. Automatyczne (cały folder roboczy)")
+    print("2. Konkretny folder")
+    print("3. Wyjście")
+    
+    choice = input("\nWybierz opcję (1-3): ").strip()
+    
+    if choice == "1":
+        # Automatyczne przetwarzanie całego folderu roboczego
+        print(f"\n🚀 Rozpoczynam automatyczne przetwarzanie AI...")
+        processor.start_ai_processing(print)
+        
+    elif choice == "2":
+        # Konkretny folder
+        test_folder = input("Podaj ścieżkę do konkretnego folderu: ").strip()
+        if not test_folder:
+            print("❌ Nie podano ścieżki")
+            return
+            
+        if not os.path.exists(test_folder):
+            print(f"❌ Folder nie istnieje: {test_folder}")
+            return
+            
+        print(f"🔍 Przetwarzam konkretny folder: {test_folder}")
+        processor.process_folder_recursive(test_folder, print)
+        
+    elif choice == "3":
+        print("👋 Do widzenia!")
+        return
+    else:
+        print("❌ Nieprawidłowy wybór")
+        return
+
+    print("\n🎉 Przetwarzanie AI zakończone! Sprawdź pliki index.json w folderach.")
+    print("🔍 Wyszukaj klucze zaczynające się od 'AI_' aby zobaczyć wyniki.")
+7. Dodanie funkcji pomocniczej get_work_directory_from_config
+Plik: ai_sbert_matcher.py
+Funkcja: Nowa funkcja pomocnicza (dodaj przed klasą AIFolderProcessor)
+Proponowany kod:
+pythondef get_work_directory_from_config():
+    """Pobiera folder roboczy z konfiguracji lub None jeśli nie ustawiony"""
+    try:
+        work_dir = config_manager.get_work_directory()
+        if work_dir and os.path.isdir(work_dir):
+            logger.info(f"📁 Znaleziono folder roboczy w konfiguracji: {work_dir}")
+            return work_dir
+        else:
+            logger.warning("⚠️ Brak prawidłowego folderu roboczego w konfiguracji")
+            return None
     except Exception as e:
-        print(f"❌ Błąd on_gallery_rebuilt_after_deletion: {e}")
-9. Zmodyfikuj funkcję on_gallery_loaded
-Plik: main.py
-Funkcja: MainWindow.on_gallery_loaded
-Kod do zastąpienia:
-pythondef on_gallery_loaded(self, ok):
-    if ok:
-        self.inject_file_operations_bridge()
-        self.update_tile_size()
-        print("✅ Galeria załadowana, wtryknięto mostek operacji na plikach")
+        logger.error(f"❌ Błąd pobierania folderu roboczego z konfiguracji: {e}")
+        return None
 Podsumowanie zmian
-Główne problemy, które naprawiłem:
+Te zmiany sprawią, że ai_sbert_matcher.py:
 
-Brak timera do sprawdzania operacji - Dodałem setup_file_operations_bridge()
-Nieprawidłowe nazwy pól w JSON - Zmieniono file_path na filePath i file_name na fileName
-Brak obsługi komunikacji JavaScript→Python - Dodałem check_for_file_operations()
-Problemy z odświeżaniem galerii - Naprawiłem łańcuch funkcji odświeżania
-Brak inicjalizacji mostka - Dodałem wywołanie w on_gallery_loaded()
+Pobiera folder roboczy z config.json - tak jak scanner_logic.py
+Działa rekurencyjnie na całym drzewie katalogów - przetwarzając wszystkie foldery z index.json
+Integruje się z istniejącym workflow - uzupełnia dane w już istniejących plikach index.json
+Zapewnia kompatybilność z główną aplikacją - używa tej samej konfiguracji
+Oferuje elastyczne opcje uruchamiania - automatycznie lub dla konkretnego folderu
 
-Po wprowadzeniu tych zmian funkcja usuwania plików powinna działać poprawnie:
+Po wprowadzeniu tych zmian można uruchomić ai_sbert_matcher.py jako skrypt standalone, który automatycznie pobierze folder roboczy z konfiguracji i przetworzy całe drzewo katalogów, dodając dane AI do istniejących plików index.json.
