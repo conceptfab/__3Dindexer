@@ -4,21 +4,36 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Galeria: {{ current_folder_display_name }}</title>
-    <link rel="stylesheet" href="{{ ' ../' * depth }}gallery_styles.css" />
+    <!-- 
+      ####################################################################
+      #  TUTAJ JEST KLUCZOWA POPRAWKA:                                   #
+      #  Zamiast "{{ ' ../' * depth }}gallery_styles.css"               #
+      #  Używamy "{{ css_path_prefix }}gallery_styles.css"              #
+      #  css_path_prefix jest przekazywane z gallery_generator.py       #
+      #  i jest albo "" (dla roota) albo "../" (dla podfolderów)        #
+      ####################################################################
+    -->
+    <link rel="stylesheet" href="{{ css_path_prefix }}gallery_styles.css" />
   </head>
   <body>
     <div class="container">
       <!-- TYLKO BREADCRUMB - ścieżka -->
       <div class="breadcrumb">
-        {% for part in breadcrumb_parts %} {% if part.link %}
-        <a href="{{ part.link }}">{{ part.name }}</a> <span>/</span>
-        {% else %}
-        <span>{{ part.name }}</span>
-        {% endif %} {% endfor %}
+        {% for part in breadcrumb_parts %}
+          {% if part.link %}
+            <a href="{{ part.link }}">{{ part.name }}</a>
+          {% else %}
+            <span>{{ part.name }}</span>
+          {% endif %}
+          {% if not loop.last %} {# Dodaj separator, jeśli to nie ostatni element #}
+            <span>/</span>
+          {% endif %}
+        {% endfor %}
       </div>
 
       {% if subfolders %}
       <div class="section">
+        <h2>📁 Podfoldery ({{ subfolders|length }})</h2>
         <div class="subfolders-grid">
           {% for sf in subfolders %}
           <div
@@ -40,23 +55,30 @@
           {% endfor %}
         </div>
       </div>
-      {% endif %} {% if files_with_previews %}
+      {% elif not files_with_previews and not other_images and not is_root_gallery_index %} 
+      {# Jeśli nie ma podfolderów, plików z podglądem, innych obrazów, i nie jesteśmy w roocie,
+         to znaczy, że jesteśmy w liściu drzewa, który jest pusty - można to obsłużyć inaczej,
+         ale jeśli taki folder ma index.json to powinien wyświetlić coś.
+         Jeśli nie ma subfolderów, a jesteśmy w roocie, to JS/Python może chcieć wyświetlić info.
+         Ten warunek jest trochę skomplikowany - może prościej wyświetlić poniższe jeśli nic innego nie ma.
+      #}
+      {% endif %} 
+      
+      {% if files_with_previews %}
       <div class="section">
         <h2>🖼️ Pliki z podglądem ({{ files_with_previews|length }})</h2>
         <div class="gallery" id="filesWithPreviewsGallery">
           {% for file in files_with_previews %}
           <div
             class="gallery-item"
-            style="background-color: {{ file.archive_color }}22; border-color: {{ file.archive_color }};"
+            style="background-color: {{ file.archive_color if file.archive_color else 'transparent' }}22; border-color: {{ file.archive_color if file.archive_color else 'var(--border)' }};"
           >
-            <!-- Checkbox w lewym górnym rogu -->
             <input
               type="checkbox"
               class="gallery-checkbox"
               data-file="{{ file.name }}"
               data-path="{{ file.path_absolute }}"
             />
-
             {% if file.preview_relative_path %}
             <img
               src="{{ file.preview_relative_path }}"
@@ -72,7 +94,7 @@
                 display: flex;
                 align-items: center;
                 justify-content: center;
-                border-radius: 8px;
+                border-radius: var(--radius-sm);
                 color: var(--text-secondary);
               "
             >
@@ -91,22 +113,22 @@
       </div>
       {% endif %}
 
-      <!-- DWIE KOLUMNY NA DOLE - PLIKI BEZ PODGLĄDU I POZOSTAŁE OBRAZY -->
       {% if files_without_previews or other_images %}
       <div class="bottom-columns">
         {% if files_without_previews %}
         <div class="left-column">
           <h2>📄 Pliki bez podglądu ({{ files_without_previews|length }})</h2>
+          {% if files_without_previews %}
           <ul class="no-preview-list">
             {% for file in files_without_previews %}
-            <li style="border-left: 4px solid {{ file.archive_color }};">
+            <li style="border-left: 4px solid {{ file.archive_color if file.archive_color else 'transparent' }};">
               <div class="file-item">
                 <input
                   type="checkbox"
                   class="file-checkbox"
                   data-file="{{ file.name }}"
                   data-path="{{ file.path_absolute }}"
-                  data-basename="{{ file.name.split('.')[0] }}"
+                  data-basename="{{ file.name.split('.')[0] if '.' in file.name else file.name }}"
                   data-type="archive"
                 />
                 <a
@@ -119,10 +141,16 @@
             </li>
             {% endfor %}
           </ul>
+          {% else %}
+          <p>Brak plików bez podglądu.</p>
+          {% endif %}
         </div>
-        {% endif %} {% if other_images %}
+        {% endif %} 
+        
+        {% if other_images %}
         <div class="right-column">
           <h2>🎨 Pozostałe obrazy ({{ other_images|length }})</h2>
+          {% if other_images %}
           <ul class="image-list">
             {% for image in other_images %}
             <li>
@@ -132,7 +160,7 @@
                   class="file-checkbox"
                   data-file="{{ image.name }}"
                   data-path="{{ image.path_absolute }}"
-                  data-basename="{{ image.name.split('.')[0] }}"
+                  data-basename="{{ image.name.split('.')[0] if '.' in image.name else image.name }}"
                   data-type="image"
                 />
                 <a
@@ -143,7 +171,6 @@
                   >{{ image.name }}</a
                 >
                 <span class="file-info"> — {{ image.size_readable }}</span>
-                <!-- IKONKA KOSZA DO USUWANIA -->
                 <button
                   class="delete-image-btn"
                   data-file-path="{{ image.path_absolute }}"
@@ -156,13 +183,17 @@
             </li>
             {% endfor %}
           </ul>
+          {% else %}
+          <p>Brak innych obrazów.</p>
+          {% endif %}
         </div>
         {% endif %}
       </div>
+      {% elif not subfolders and not files_with_previews and not files_without_previews and not other_images %}
+        <div class="section"><p>Ten folder jest pusty lub nie zawiera elementów do wyświetlenia w galerii.</p></div>
       {% endif %}
 
-      <!-- PRZYCISK DOPASUJ PODGLĄD -->
-      {% if files_without_previews and other_images %}
+      {% if (files_without_previews and other_images) or (files_with_previews and other_images) or (files_with_previews and files_without_previews) %}
       <div class="learning-section">
         <button id="matchPreviewBtn" class="match-preview-btn" disabled>
           🎯 Dopasuj podgląd
@@ -172,31 +203,31 @@
       {% endif %}
     </div>
 
-    <!-- Modal podglądu -->
     <div class="preview-backdrop" id="previewBackdrop"></div>
     <div class="preview-modal" id="previewModal">
       <img src="" alt="Podgląd" id="previewImg" />
     </div>
 
     <script>
-      // Globalne funkcje
-      function getCurrentFolder() {
-        // Pobierz aktualny folder z URL galerii
-        const currentUrl = window.location.pathname;
-        if (currentUrl.includes('_gallery_cache')) {
-          // Konwertuj ścieżkę galerii na rzeczywistą ścieżkę
-          const parts = currentUrl.split('_gallery_cache/')[1];
-          if (parts) {
-            const galleryPath = parts.replace('/index.html', '');
-            // Zwróć rzeczywistą ścieżkę folderu
-            return '{{ folder_info.path if folder_info else "." }}';
-          }
-        }
-        // Jeśli nie jesteśmy w galerii, zwróć ścieżkę z folder_info
-        return '{{ folder_info.path if folder_info else "." }}';
-      }
+      // Przekazanie danych z Pythona do JS dla większej niezawodności
+      // Upewnij się, że `folder_info` zawiera `path_absolute`
+      window.galleryConfig = {
+          currentFolderAbsPath: {{ folder_info.path_absolute | tojson | safe if folder_info and folder_info.path_absolute else 'null' }},
+          isRootIndex: {{ is_root_gallery_index | tojson | safe }},
+          scannedRootPath: {{ scanned_root_path_abs_for_template | tojson | safe }}
+      };
+      
+      console.log("Gallery Config from Python:", window.galleryConfig);
 
-      // Dodaj do window dla pewności
+      function getCurrentFolder() {
+        if (window.galleryConfig && window.galleryConfig.currentFolderAbsPath) {
+            return window.galleryConfig.currentFolderAbsPath.replace(/\\/g, '/');
+        }
+        console.warn("getCurrentFolder: Fallback, window.galleryConfig.currentFolderAbsPath not available.");
+        // Ten fallback jest mniej idealny, ale jako zabezpieczenie
+        const fallbackPath = {{ folder_info.path_absolute | tojson | safe if folder_info and folder_info.path_absolute else "'.'".format() }};
+        return fallbackPath.replace(/\\/g, '/');
+      }
       window.getCurrentFolder = getCurrentFolder;
 
       document.addEventListener('DOMContentLoaded', function () {
@@ -210,13 +241,11 @@
         const matchBtn = document.getElementById('matchPreviewBtn');
         const matchStatus = document.getElementById('matchStatus');
 
-        // Podgląd w modalnym oknie
         function showPreview(imageSrc) {
           if (!imageSrc) return;
           previewImg.src = imageSrc;
           previewModal.classList.add('show');
           previewBackdrop.classList.add('show');
-          previewModal.style.transform = 'translate(-50%, -50)';
         }
 
         function hidePreview() {
@@ -225,377 +254,181 @@
           previewImg.src = '';
         }
 
-        // OBSŁUGA USUWANIA PLIKÓW OBRAZÓW
         const deleteButtons = document.querySelectorAll('.delete-image-btn');
         deleteButtons.forEach((button) => {
           button.addEventListener('click', function (e) {
-            e.preventDefault();
-            e.stopPropagation();
-
+            e.preventDefault(); e.stopPropagation();
             const filePath = this.dataset.filePath;
             const fileName = this.dataset.fileName;
-
-            if (
-              confirm(`Czy na pewno chcesz usunąć plik "${fileName}" do kosza?`)
-            ) {
+            if (confirm(`Czy na pewno chcesz usunąć plik "${fileName}" do kosza?`)) {
               try {
-                // Sprawdź dostępność localStorage
-                if (typeof Storage === 'undefined' || !localStorage) {
-                  alert('Funkcja usuwania nie jest dostępna w tym kontekście');
-                  return;
-                }
-
-                // Komunikacja z PyQt przez localStorage
-                const deleteData = {
-                  action: 'deleteFile',
-                  filePath: filePath,
-                  fileName: fileName,
-                  timestamp: new Date().toISOString(),
-                };
-
+                if (typeof Storage === 'undefined' || !localStorage) { alert('Funkcja usuwania nie jest dostępna.'); return; }
+                const deleteData = { action: 'deleteFile', filePath: filePath, fileName: fileName, timestamp: new Date().toISOString() };
                 console.log('🗑️ Usuwanie pliku:', deleteData);
-
-                // Zapisz do localStorage
                 const deleteKey = 'deleteFile_' + Date.now();
                 localStorage.setItem(deleteKey, JSON.stringify(deleteData));
                 localStorage.setItem('latestDelete', deleteKey);
-
-                // Wyłącz przycisk i pokaż status
-                this.textContent = '⏳';
-                this.disabled = true;
-                this.style.opacity = '0.5';
-
-                // Pokaż komunikat o przetwarzaniu
+                this.textContent = '⏳'; this.disabled = true; this.style.opacity = '0.5';
                 const statusDiv = document.createElement('div');
-                statusDiv.style.cssText = `
-                  position: fixed; top: 20px; right: 20px; z-index: 9999;
-                  background: var(--warning); color: white; padding: 12px 20px;
-                  border-radius: 8px; font-weight: 500; box-shadow: var(--shadow);
-                `;
+                statusDiv.className = 'file-operation-notification warning';
                 statusDiv.textContent = `⏳ Usuwanie "${fileName}"...`;
                 document.body.appendChild(statusDiv);
-
-                // Usuń komunikat po 5 sekundach
-                setTimeout(() => {
-                  if (statusDiv.parentNode) {
-                    statusDiv.parentNode.removeChild(statusDiv);
-                  }
-                }, 5000);
-              } catch (e) {
-                console.error('Błąd usuwania pliku:', e);
-                alert('Wystąpił błąd podczas usuwania pliku');
-              }
+                setTimeout(() => { if (statusDiv.parentNode) statusDiv.parentNode.removeChild(statusDiv); }, 5000);
+              } catch (err) { console.error('Błąd usuwania pliku:', err); alert('Wystąpił błąd podczas usuwania.'); }
             }
           });
         });
 
-        // Podgląd na hover dla obrazów
         galleries.forEach((gallery) => {
           const images = gallery.querySelectorAll('.preview-image');
           images.forEach((img) => {
             let hoverTimeout;
-
-            img.addEventListener('mouseenter', function () {
-              hoverTimeout = setTimeout(() => {
-                showPreview(this.src);
-              }, 2000);
-            });
-
-            img.addEventListener('mouseleave', function () {
-              clearTimeout(hoverTimeout);
-            });
+            img.addEventListener('mouseenter', function () { hoverTimeout = setTimeout(() => { showPreview(this.src); }, 1000); });
+            img.addEventListener('mouseleave', function () { clearTimeout(hoverTimeout); });
           });
         });
 
-        // Podgląd na hover dla linków w right-column
         const previewLinks = document.querySelectorAll('.preview-link');
         previewLinks.forEach((link) => {
           let hoverTimeout;
-
           link.addEventListener('mouseenter', function () {
             const previewSrc = this.getAttribute('data-preview-src');
-            if (previewSrc) {
-              hoverTimeout = setTimeout(() => {
-                showPreview(previewSrc);
-              }, 2000);
-            }
+            if (previewSrc) { hoverTimeout = setTimeout(() => { showPreview(previewSrc); }, 1000); }
           });
-
-          link.addEventListener('mouseleave', function () {
-            clearTimeout(hoverTimeout);
-          });
+          link.addEventListener('mouseleave', function () { clearTimeout(hoverTimeout); });
         });
 
-        // Zamykanie modala
         previewBackdrop.addEventListener('click', hidePreview);
-        previewModal.addEventListener('click', hidePreview);
+        previewModal.addEventListener('click', (e) => { if(e.target === previewModal) hidePreview(); });
+        document.addEventListener('keydown', function (e) { if (e.key === 'Escape') hidePreview(); });
 
-        document.addEventListener('keydown', function (e) {
-          if (e.key === 'Escape') {
-            hidePreview();
-          }
-        });
-
-        // FUNKCJONALNOŚĆ UCZENIA SIĘ ALGORYTMU
         if (matchBtn) {
-          // Sprawdź dostępność localStorage
           let localStorageAvailable = false;
-          try {
-            if (typeof Storage !== 'undefined' && localStorage) {
-              localStorage.setItem('test', 'test');
-              localStorage.removeItem('test');
-              localStorageAvailable = true;
-            }
-          } catch (e) {
-            console.warn('localStorage nie jest dostępny:', e);
-          }
-
-          if (!localStorageAvailable) {
-            matchBtn.style.display = 'none';
-            matchStatus.textContent =
-              '⚠️ Funkcje uczenia się są niedostępne w tym kontekście';
-            return;
-          }
+          try { if (typeof Storage !== 'undefined' && localStorage) { localStorage.setItem('test','test'); localStorage.removeItem('test'); localStorageAvailable = true; }}
+          catch (e) { console.warn('localStorage nie jest dostępny:', e); }
+          if (!localStorageAvailable) { matchBtn.style.display = 'none'; if(matchStatus) matchStatus.textContent = '⚠️ Funkcje uczenia niedostępne.'; return; }
 
           const checkboxes = document.querySelectorAll('.file-checkbox');
-
           function updateMatchButton() {
-            const archiveChecked = Array.from(checkboxes).filter(
-              (cb) => cb.checked && cb.dataset.type === 'archive'
-            );
-            const imageChecked = Array.from(checkboxes).filter(
-              (cb) => cb.checked && cb.dataset.type === 'image'
-            );
-
-            // Aktywuj przycisk gdy dokładnie 1 archiwum i 1 obraz jest zaznaczony
-            matchBtn.disabled = !(
-              archiveChecked.length === 1 && imageChecked.length === 1
-            );
-
-            if (matchBtn.disabled) {
-              matchStatus.textContent = '';
-            } else {
-              matchStatus.textContent = `Gotowy do dopasowania: ${archiveChecked[0].dataset.file} ↔ ${imageChecked[0].dataset.file}`;
-            }
+            const archiveChecked = Array.from(checkboxes).filter(cb => cb.checked && cb.dataset.type === 'archive');
+            const imageChecked = Array.from(checkboxes).filter(cb => cb.checked && cb.dataset.type === 'image');
+            matchBtn.disabled = !(archiveChecked.length === 1 && imageChecked.length === 1);
+            if (matchStatus) matchStatus.textContent = matchBtn.disabled ? '' : `Gotowy: ${archiveChecked[0].dataset.file} ↔ ${imageChecked[0].dataset.file}`;
           }
-
-          // Nasłuchuj zmian w checkboxach
           checkboxes.forEach((checkbox) => {
             checkbox.addEventListener('change', function () {
-              // Jeśli zaznaczono checkbox, odznacz inne w tej samej kategorii
               if (this.checked) {
-                checkboxes.forEach((otherCheckbox) => {
-                  if (
-                    otherCheckbox !== this &&
-                    otherCheckbox.dataset.type === this.dataset.type
-                  ) {
-                    otherCheckbox.checked = false;
-                  }
-                });
+                checkboxes.forEach((otherCb) => { if (otherCb !== this && otherCb.dataset.type === this.dataset.type) otherCb.checked = false; });
               }
               updateMatchButton();
             });
           });
-
-          // Obsługa kliknięcia przycisku dopasowania
           matchBtn.addEventListener('click', function () {
-            const archiveChecked = Array.from(checkboxes).find(
-              (cb) => cb.checked && cb.dataset.type === 'archive'
-            );
-            const imageChecked = Array.from(checkboxes).find(
-              (cb) => cb.checked && cb.dataset.type === 'image'
-            );
-
-            if (archiveChecked && imageChecked) {
-              // BEZPOŚREDNIA KOMUNIKACJA Z PyQt przez localStorage
+            const archiveCb = Array.from(checkboxes).find(cb => cb.checked && cb.dataset.type === 'archive');
+            const imageCb = Array.from(checkboxes).find(cb => cb.checked && cb.dataset.type === 'image');
+            if (archiveCb && imageCb) {
               const matchData = {
-                archiveFile: archiveChecked.dataset.file,
-                archivePath: archiveChecked.dataset.path.replace(/\\/g, '/'),
-                imageFile: imageChecked.dataset.file,
-                imagePath: imageChecked.dataset.path.replace(/\\/g, '/'),
-                archiveBasename: archiveChecked.dataset.basename,
-                imageBasename: imageChecked.dataset.basename,
-                timestamp: new Date().toISOString(),
-                currentFolder: window.location.pathname,
+                archiveFile: archiveCb.dataset.file, archivePath: archiveCb.dataset.path.replace(/\\/g, '/'),
+                imageFile: imageCb.dataset.file, imagePath: imageCb.dataset.path.replace(/\\/g, '/'),
+                archiveBasename: archiveCb.dataset.basename, imageBasename: imageCb.dataset.basename,
+                timestamp: new Date().toISOString(), currentFolder: getCurrentFolder()
               };
-
               console.log('🎯 Zapisuję dopasowanie:', matchData);
-
-              // ZAPISZ DO localStorage z unikalnym kluczem
               const matchKey = 'learningMatch_' + Date.now();
               localStorage.setItem(matchKey, JSON.stringify(matchData));
-              localStorage.setItem('latestMatch', matchKey);
-
-              // Informuj o powodzeniu
-              matchStatus.textContent =
-                '✅ Dopasowanie zapisane! Trwa nauka algorytmu...';
-              matchBtn.disabled = true;
-              matchBtn.textContent = '⏳ Przetwarzanie...';
-
-              // Wyczyść checkboxy
-              archiveChecked.checked = false;
-              imageChecked.checked = false;
-
-              // Wywołaj polling PyQt natychmiast
-              setTimeout(() => {
-                window.dispatchEvent(
-                  new CustomEvent('learningMatchReady', {
-                    detail: matchData,
-                  })
-                );
-              }, 100);
+              localStorage.setItem('latestLearningMatch', matchKey);
+              if(matchStatus) matchStatus.textContent = '✅ Zapisano! Nauka algorytmu...';
+              matchBtn.disabled = true; matchBtn.textContent = '⏳ Przetwarzanie...';
+              archiveCb.checked = false; imageCb.checked = false;
             }
           });
         }
 
-        // OPERACJE NA PLIKACH
-        let selectedFiles = [];
+        // Logika dla przywracania rozmiaru kafelków z localStorage (jeśli suwak jest w Pythonie)
+        // Możesz ją usunąć, jeśli rozmiar kafelków jest zarządzany tylko przez suwak w UI Pythona
+        if (typeof localStorage !== 'undefined' && localStorage.getItem('galleryTileSize')) {
+            const savedSize = localStorage.getItem('galleryTileSize');
+            const galleriesToResize = document.querySelectorAll('.gallery');
+            galleriesToResize.forEach(gallery => {
+                gallery.style.gridTemplateColumns = `repeat(auto-fill, minmax(${savedSize}px, 1fr))`;
+            });
+        }
+
+        // Poniższe funkcje (showMoveFilesDialog itp.) są definicjami,
+        // ale nie są wywoływane bezpośrednio z HTML.
+        // Są one dostępne dla Pythona do wywołania poprzez webView.page().runJavaScript("showMoveFilesDialog();")
+        // jeśli przyciski byłyby w HTML. W Twoim przypadku przyciski są w Pythonie,
+        // więc ta część jest bardziej "biblioteką" funkcji dla localStorage.
+
+        let selectedFiles = []; // Zmienna globalna w tym zakresie DOMContentLoaded
 
         function updateSelectedFiles() {
           selectedFiles = [];
-
-          // Zbierz zaznaczone pliki z galerii
-          document
-            .querySelectorAll('.gallery-checkbox:checked')
-            .forEach((cb) => {
-              selectedFiles.push({
-                type: 'archive_with_preview',
-                name: cb.dataset.file,
-                path: cb.dataset.path,
-                preview:
-                  cb.closest('.gallery-item').querySelector('img')?.src || null,
-              });
-            });
-
-          // Zbierz zaznaczone pliki bez podglądu
-          document
-            .querySelectorAll('.file-checkbox:checked[data-type="archive"]')
-            .forEach((cb) => {
-              selectedFiles.push({
-                type: 'archive',
-                name: cb.dataset.file,
-                path: cb.dataset.path,
-                basename: cb.dataset.basename,
-              });
-            });
-
-          // Zbierz zaznaczone obrazy
-          document
-            .querySelectorAll('.file-checkbox:checked[data-type="image"]')
-            .forEach((cb) => {
-              selectedFiles.push({
-                type: 'image',
-                name: cb.dataset.file,
-                path: cb.dataset.path,
-                basename: cb.dataset.basename,
-              });
-            });
-
-          console.log('Wybrane pliki:', selectedFiles);
+          document.querySelectorAll('.gallery-checkbox:checked').forEach(cb => {
+            selectedFiles.push({ type: 'archive_with_preview', name: cb.dataset.file, path: cb.dataset.path, preview: cb.closest('.gallery-item').querySelector('img')?.src || null });
+          });
+          document.querySelectorAll('.file-checkbox:checked[data-type="archive"]').forEach(cb => {
+            selectedFiles.push({ type: 'archive', name: cb.dataset.file, path: cb.dataset.path, basename: cb.dataset.basename });
+          });
+          document.querySelectorAll('.file-checkbox:checked[data-type="image"]').forEach(cb => {
+            selectedFiles.push({ type: 'image', name: cb.dataset.file, path: cb.dataset.path, basename: cb.dataset.basename });
+          });
+          console.log('JS: Wybrane pliki:', selectedFiles);
         }
 
-        function showMoveFilesDialog() {
+        // Te funkcje zapisują dane do localStorage, Python je odczytuje
+        window.jsShowMoveFilesDialog = function() { // Zmieniono nazwę, aby uniknąć konfliktu
           updateSelectedFiles();
-
-          if (selectedFiles.length === 0) {
-            alert('Najpierw zaznacz pliki do przeniesienia');
-            return;
-          }
-
-          const moveData = {
-            files: selectedFiles,
-          };
-
+          if (selectedFiles.length === 0) { alert('Najpierw zaznacz pliki do przeniesienia'); return; }
+          const moveData = { files: selectedFiles };
           const moveKey = 'moveFiles_' + Date.now();
           localStorage.setItem(moveKey, JSON.stringify(moveData));
           localStorage.setItem('latestMoveFiles', moveKey);
-
-          // Odznacz wszystkie checkboxy
-          document
-            .querySelectorAll('.gallery-checkbox, .file-checkbox')
-            .forEach((cb) => {
-              cb.checked = false;
-            });
-
-          console.log('Zapisano operację przenoszenia:', moveData);
+          document.querySelectorAll('.gallery-checkbox, .file-checkbox').forEach(cb => { cb.checked = false; });
+          console.log('JS: Zapisano operację przenoszenia:', moveData);
         }
 
-        function showRenameFilesDialog() {
+        window.jsShowRenameFilesDialog = function() { // Zmieniono nazwę
           updateSelectedFiles();
-
-          if (selectedFiles.length === 0) {
-            alert('Najpierw zaznacz pliki do zmiany nazwy');
-            return;
-          }
-
-          // Sprawdź czy zaznaczone pliki mogą być zmieniane razem
-          const archiveFiles = selectedFiles.filter(
-            (f) => f.type === 'archive' || f.type === 'archive_with_preview'
-          );
-          const imageFiles = selectedFiles.filter((f) => f.type === 'image');
-
-          if (archiveFiles.length > 0 && imageFiles.length > 0) {
-            // Jeśli są archiwum i obraz, zaproponuj wspólną nazwę
-            const newBaseName = prompt(
-              'Podaj nową wspólną nazwę bazową (bez rozszerzenia):'
-            );
-            if (newBaseName && newBaseName.trim()) {
-              const renameData = {
-                files: selectedFiles,
-                newBaseName: newBaseName.trim(),
-              };
-
+          if (selectedFiles.length === 0) { alert('Najpierw zaznacz pliki do zmiany nazwy'); return; }
+          const archiveFiles = selectedFiles.filter(f => f.type === 'archive' || f.type === 'archive_with_preview');
+          const imageFiles = selectedFiles.filter(f => f.type === 'image');
+          // Zamiast prompt, Python zapyta o nową nazwę
+          // Tutaj tylko przygotowujemy dane
+          if (archiveFiles.length > 0 || imageFiles.length > 0) { // Wystarczy, że coś jest zaznaczone
+              const renameData = { files: selectedFiles, /* newBaseName zostanie dodane przez Pythona */ };
               const renameKey = 'renameFiles_' + Date.now();
               localStorage.setItem(renameKey, JSON.stringify(renameData));
-              localStorage.setItem('latestRenameFiles', renameKey);
-
-              // Odznacz wszystkie checkboxy
-              document
-                .querySelectorAll('.gallery-checkbox, .file-checkbox')
-                .forEach((cb) => {
-                  cb.checked = false;
-                });
-
-              console.log('Zapisano operację zmiany nazw:', renameData);
-            }
+              localStorage.setItem('latestRenameFilesRequest', renameKey); // Inny klucz dla żądania
+              document.querySelectorAll('.gallery-checkbox, .file-checkbox').forEach(cb => { cb.checked = false; });
+              console.log('JS: Zapisano żądanie zmiany nazw:', renameData);
           } else {
-            alert('Zaznacz archiwum i odpowiadający mu obraz do zmiany nazwy');
+            alert('Zaznacz pliki, aby zmienić ich nazwy.');
           }
         }
 
-        function showCreateFolderDialog() {
-          const folderName = prompt('Podaj nazwę nowego folderu:');
-          if (folderName && folderName.trim()) {
-            // Walidacja nazwy folderu
-            const invalidChars = '<>:"/\\|?*';
-            if (
-              invalidChars.split('').some((char) => folderName.includes(char))
-            ) {
-              alert(
-                `Nazwa folderu zawiera niedozwolone znaki: ${invalidChars}`
-              );
-              return;
+        window.jsShowCreateFolderDialog = function() { // Zmieniono nazwę
+          const folderName = prompt('Podaj nazwę nowego folderu:'); // JS może zapytać, albo Python
+          if (folderName && folder_name.trim()) { // Użyj folder_name z prompt
+            const invalidChars = /[<>:"/\\|?*]/;
+            if (invalidChars.test(folder_name.trim())) {
+              alert(`Nazwa folderu zawiera niedozwolone znaki: ${invalidChars.source}`); return;
             }
-
-            const createData = {
-              parentFolder: getCurrentFolder(),
-              folderName: folderName.trim(),
-            };
-
+            const createData = { parentFolder: getCurrentFolder(), folderName: folder_name.trim() };
             const createKey = 'createFolder_' + Date.now();
             localStorage.setItem(createKey, JSON.stringify(createData));
             localStorage.setItem('latestCreateFolder', createKey);
-
-            console.log('Zapisano operację tworzenia folderu:', createData);
+            console.log('JS: Zapisano operację tworzenia folderu:', createData);
           }
         }
-
-        // Obsługa checkboxów - aktualizuj stan przy zmianie
+        
+        // Listener dla checkboxów, aby aktualizować `selectedFiles`
         document.addEventListener('change', function (e) {
           if (e.target.matches('.gallery-checkbox, .file-checkbox')) {
-            updateSelectedFiles();
+            updateSelectedFiles(); // Aktualizuj przy każdej zmianie zaznaczenia
           }
         });
+
       });
     </script>
   </body>

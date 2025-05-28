@@ -25,12 +25,39 @@ class LRUCache:
         self.cache[key] = value
         self.access_times[key] = time.time()
 
+    def clear(self):
+        """Wyczyść cache"""
+        self.cache.clear()
+        self.access_times.clear()
 
-# Globalny cache
-file_stats_cache = LRUCache(5000)
+    def size(self):
+        """Zwróć aktualny rozmiar cache"""
+        return len(self.cache)
 
 
-@functools.lru_cache(maxsize=1000)
+# Globalny cache z mniejszym rozmiarem dla stabilności
+file_stats_cache = LRUCache(1000)  # Zmniejszono z 5000 na 1000
+
+
+@functools.lru_cache(maxsize=500)  # Zmniejszono z 1000 na 500
 def get_file_size_readable_cached(size_bytes):
     """Cached version of file size conversion"""
     return get_file_size_readable(size_bytes)
+
+
+def clear_all_caches():
+    """Wyczyść wszystkie cache dla zwolnienia pamięci"""
+    file_stats_cache.clear()
+    get_file_size_readable_cached.cache_clear()
+
+
+def get_file_size_readable(size_bytes):
+    """Konwertuje rozmiar pliku w bajtach na czytelny format."""
+    if size_bytes == 0:
+        return "0 B"
+    size_name = ("B", "KB", "MB", "GB", "TB", "PB", "EB", "ZB", "YB")
+    i = 0
+    while size_bytes >= 1024 and i < len(size_name) - 1:
+        size_bytes /= 1024.0
+        i += 1
+    return f"{size_bytes:.2f} {size_name[i]}"
