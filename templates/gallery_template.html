@@ -82,6 +82,7 @@
               alt="Podgląd dla {{ file.name }}"
               class="preview-image"
               data-full-src="{{ file.preview_relative_path }}"
+              loading="lazy"
             />
             {% else %}
             <div
@@ -163,6 +164,8 @@
                   title="Otwórz: {{ image.name }}"
                   data-preview-src="{{ image.image_relative_path }}"
                   class="preview-link"
+                  data-type="image"
+                  data-name="{{ image.name }}"
                   >{{ image.name }}</a
                 >
                 <span class="file-info"> — {{ image.size_readable }}</span>
@@ -213,9 +216,9 @@
       // Przekazanie danych z Pythona do JS dla większej niezawodności
       // Upewnij się, że `folder_info` zawiera `path_absolute`
       window.galleryConfig = {
-          currentFolderAbsPath: {{ folder_info.path_absolute | tojson | safe if folder_info and folder_info.path_absolute else 'null' }},
-          isRootIndex: {{ is_root_gallery_index | tojson | safe }},
-          scannedRootPath: {{ scanned_root_path_abs_for_template | tojson | safe }}
+          currentFolderAbsPath: "{{ folder_info.path_absolute|tojson|safe if folder_info and folder_info.path_absolute else 'null' }}",
+          isRootIndex: {{ is_root_gallery_index|tojson|safe }},
+          scannedRootPath: {{ scanned_root_path_abs_for_template|tojson|safe }}
       };
 
       console.log("Gallery Config from Python:", window.galleryConfig);
@@ -225,8 +228,7 @@
             return window.galleryConfig.currentFolderAbsPath.replace(/\\/g, '/');
         }
         console.warn("getCurrentFolder: Fallback, window.galleryConfig.currentFolderAbsPath not available.");
-        const fallbackPath = {{ folder_info.path_absolute | tojson | safe if folder_info and folder_info.path_absolute else "'.'"}};
-        return fallbackPath.replace(/\\/g, '/');
+        return ".";
       }
       window.getCurrentFolder = getCurrentFolder;
 
@@ -243,31 +245,61 @@
         const matchBtn = document.getElementById('matchPreviewBtn');
         const matchStatus = document.getElementById('matchStatus');
 
+        // Sprawdź czy wszystkie potrzebne elementy są dostępne
+        if (!previewModal || !previewBackdrop || !previewImg) {
+          console.error('Brak wymaganych elementów modalu podglądu:', {
+            previewModal: !!previewModal,
+            previewBackdrop: !!previewBackdrop,
+            previewImg: !!previewImg
+          });
+        }
+
         console.log('Elementy galerii:', {
           galleries: galleries.length,
           previewModal: !!previewModal,
+          previewBackdrop: !!previewBackdrop,
+          previewImg: !!previewImg,
           matchBtn: !!matchBtn
         });
 
         function showPreview(imageSrc) {
           console.log('showPreview wywołane z:', imageSrc);
-          if (!imageSrc) return;
+
+          if (!imageSrc) {
+            console.error('Brak źródła obrazu');
+            return;
+          }
+
           if (!previewModal || !previewBackdrop || !previewImg) {
             console.error('Brak elementów modal');
             return;
           }
+
+          // Najpierw pokazujemy backdrop
+          previewBackdrop.style.display = 'block';
+          previewModal.style.display = 'block';
+
+          // Dajemy czas na wyrenderowanie
+          requestAnimationFrame(() => {
+            previewBackdrop.classList.add('show');
+            previewModal.classList.add('show');
+          });
+
+          // Ustaw źródło obrazu
           previewImg.src = imageSrc;
-          previewModal.classList.add('show');
-          previewBackdrop.classList.add('show');
-          console.log('Podgląd wyświetlony');
         }
 
         function hidePreview() {
-          console.log('hidePreview wywołane');
           if (!previewModal || !previewBackdrop || !previewImg) return;
+
           previewModal.classList.remove('show');
           previewBackdrop.classList.remove('show');
-          previewImg.src = '';
+
+          setTimeout(() => {
+            previewModal.style.display = 'none';
+            previewBackdrop.style.display = 'none';
+            previewImg.src = '';
+          }, 200);
         }
 
         const deleteButtons = document.querySelectorAll('.delete-image-btn');
@@ -296,23 +328,24 @@
         });
 
         galleries.forEach((gallery) => {
+          if (!gallery) return;
+
           const images = gallery.querySelectorAll('.preview-image');
           console.log(`Znaleziono ${images.length} obrazów podglądu w galerii`);
 
-          images.forEach((img, index) => {
-            console.log(`Dodaję listenery do obrazu ${index}:`, img.src);
+          images.forEach((img) => {
             let hoverTimeout;
 
-            img.addEventListener('mouseenter', function () {
-              console.log('MOUSEENTER na obrazie:', this.src);
+            img.addEventListener('mouseenter', function() {
+              const imageSrc = this.dataset.fullSrc || this.src;
+              console.log('MOUSEENTER na obrazie:', imageSrc);
+
               hoverTimeout = setTimeout(() => {
-                console.log('Timeout - pokazuję podgląd obrazu');
-                showPreview(this.src);
-              }, 1000); // Zmniejszone na 1 sekundę dla testów
+                showPreview(imageSrc);
+              }, 2000);
             });
 
-            img.addEventListener('mouseleave', function () {
-              console.log('MOUSELEAVE na obrazie');
+            img.addEventListener('mouseleave', function() {
               clearTimeout(hoverTimeout);
               hidePreview();
             });
@@ -320,26 +353,34 @@
         });
 
         const previewLinks = document.querySelectorAll('.preview-link');
+        console.log(`Znaleziono ${previewLinks.length} linków z podglądem`);
+
         previewLinks.forEach((link) => {
           let hoverTimeout;
-          link.addEventListener('mouseenter', function () {
+
+          link.addEventListener('mouseenter', function() {
             const previewSrc = this.getAttribute('data-preview-src');
+            console.log('MOUSEENTER na linku:', previewSrc);
+
             if (previewSrc) {
               hoverTimeout = setTimeout(() => {
-                console.log('Hover na linku, pokazuję podgląd:', previewSrc);
                 showPreview(previewSrc);
-              }, 2000); // ZMIENIONO NA 2 SEKUNDY
+              }, 2000);
             }
           });
-          link.addEventListener('mouseleave', function () {
+
+          link.addEventListener('mouseleave', function() {
             clearTimeout(hoverTimeout);
-            hidePreview(); // DODANO - ukryj od razu po opuszczeniu
+            hidePreview();
           });
         });
 
         previewBackdrop.addEventListener('click', hidePreview);
-        previewModal.addEventListener('click', (e) => { if(e.target === previewModal) hidePreview(); });
-        document.addEventListener('keydown', function (e) { if (e.key === 'Escape') hidePreview(); });
+        document.addEventListener('keydown', function(e) {
+          if (e.key === 'Escape') {
+            hidePreview();
+          }
+        });
 
         if (matchBtn) {
           console.log('=== INICJALIZUJĘ FUNKCJĘ DOPASOWANIA ===');
