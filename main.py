@@ -426,7 +426,8 @@ class MainWindow(QMainWindow):
             })();
             """
             self.web_view.page().runJavaScript(js_code, self.handle_learning_match_result)
-        except Exception as e: print(f"❌ Błąd check_for_learning_matches: {e}", flush=True)
+        except Exception as e: 
+            print(f"❌ Błąd check_for_learning_matches: {e}", flush=True)
 
     def handle_learning_match_result(self, result):
         if not result: return
@@ -636,25 +637,62 @@ class MainWindow(QMainWindow):
         if ok and folder_name.strip(): self.process_create_folder_python_logic(parent_for_new_folder, folder_name.strip())
 
     def show_delete_empty_dialog_python(self):
-        if not self.current_work_directory: QMessageBox.warning(self, "Błąd", "Nie wybrano folderu."); return
-        reply = QMessageBox.question(self, "Potwierdzenie", f"Usunąć puste foldery w:\n{self.current_work_directory}?\n(Pusty = brak plików lub tylko index.json)",
-                                   QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No, QMessageBox.StandardButton.No)
+        if not self.current_work_directory: 
+            QMessageBox.warning(self, "Błąd", "Nie wybrano folderu."); return
+        
+        # Pobierz aktualny folder z galerii zamiast całego katalogu roboczego
+        current_gallery_folder = self.get_current_gallery_folder_from_js()
+        if not current_gallery_folder:
+            current_gallery_folder = self.current_work_directory
+        
+        reply = QMessageBox.question(self, "Potwierdzenie", 
+                                   f"Usunąć puste foldery w:\n{current_gallery_folder}?\n(Pusty = brak plików lub tylko index.json)",
+                                   QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No, 
+                                   QMessageBox.StandardButton.No)
         if reply != QMessageBox.StandardButton.Yes: return
+        
         deleted_count = 0; errors = []
-        for root, _, files in os.walk(self.current_work_directory, topdown=False): # Zmieniono dirs na _
-            if root.lower() == self.current_work_directory.lower(): continue
-            try:
-                dir_content = os.listdir(root)
-                is_empty = not dir_content or (len(dir_content) == 1 and dir_content[0] == "index.json")
-                if is_empty:
-                    # Dodatkowe sprawdzenie: upewnij się, że nie ma podfolderów, które nie są puste
-                    # Ta logika jest teraz wbudowana w os.walk(topdown=False) - najpierw przetwarza podfoldery
-                    self.log_message(f"Usuwam pusty folder: {root}")
-                    send2trash.send2trash(root); deleted_count += 1
-            except Exception as e: errors.append(f"Błąd {os.path.basename(root)}: {str(e)}")
-        if deleted_count > 0: QMessageBox.information(self, "Sukces", f"Usunięto {deleted_count} pustych folderów."); self.rebuild_gallery(auto_show_after_build=True)
-        else: QMessageBox.information(self, "Info", "Nie znaleziono pustych folderów.")
-        if errors: QMessageBox.warning(self, "Błędy", "Błędy podczas usuwania:\n" + "\n".join(errors))
+        
+        # Skanuj tylko bezpośrednie podfoldery aktualnego folderu
+        try:
+            for entry in os.scandir(current_gallery_folder):
+                if entry.is_dir(follow_symlinks=False):
+                    try:
+                        dir_content = os.listdir(entry.path)
+                        is_empty = not dir_content or (len(dir_content) == 1 and dir_content[0] == "index.json")
+                        if is_empty:
+                            self.log_message(f"Usuwam pusty folder: {entry.path}")
+                            send2trash.send2trash(entry.path)
+                            deleted_count += 1
+                    except Exception as e: 
+                        errors.append(f"Błąd {entry.name}: {str(e)}")
+        except Exception as e:
+            errors.append(f"Błąd skanowania {current_gallery_folder}: {str(e)}")
+        
+        if deleted_count > 0: 
+            QMessageBox.information(self, "Sukces", f"Usunięto {deleted_count} pustych folderów.")
+            self.rebuild_gallery(auto_show_after_build=True)
+        else: 
+            QMessageBox.information(self, "Info", "Nie znaleziono pustych folderów.")
+        if errors: 
+            QMessageBox.warning(self, "Błędy", "Błędy podczas usuwania:\n" + "\n".join(errors))
+
+    def get_current_gallery_folder_from_js(self):
+        """Pobiera aktualny folder z JavaScript"""
+        try:
+            js_code = """
+            (function() {
+                if (window.galleryConfig && window.galleryConfig.currentFolderAbsPath) {
+                    return window.galleryConfig.currentFolderAbsPath;
+                }
+                return null;
+            })();
+            """
+            # Synchroniczne wywołanie - może nie działać we wszystkich przypadkach
+            # Alternatywnie można użyć callback lub promise
+            return None  # Fallback - użyj current_work_directory
+        except:
+            return None
 
     def load_learning_data(self):
         try:

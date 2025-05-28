@@ -19,16 +19,14 @@
     <div class="container">
       <!-- TYLKO BREADCRUMB - ścieżka -->
       <div class="breadcrumb">
-        {% for part in breadcrumb_parts %}
-          {% if part.link %}
-            <a href="{{ part.link }}">{{ part.name }}</a>
-          {% else %}
-            <span>{{ part.name }}</span>
-          {% endif %}
-          {% if not loop.last %} {# Dodaj separator, jeśli to nie ostatni element #}
-            <span>/</span>
-          {% endif %}
-        {% endfor %}
+        {% for part in breadcrumb_parts %} {% if part.link %}
+        <a href="{{ part.link }}">{{ part.name }}</a>
+        {% else %}
+        <span>{{ part.name }}</span>
+        {% endif %} {% if not loop.last %} {# Dodaj separator, jeśli to nie
+        ostatni element #}
+        <span>/</span>
+        {% endif %} {% endfor %}
       </div>
 
       {% if subfolders %}
@@ -55,16 +53,14 @@
           {% endfor %}
         </div>
       </div>
-      {% elif not files_with_previews and not other_images and not is_root_gallery_index %} 
-      {# Jeśli nie ma podfolderów, plików z podglądem, innych obrazów, i nie jesteśmy w roocie,
-         to znaczy, że jesteśmy w liściu drzewa, który jest pusty - można to obsłużyć inaczej,
-         ale jeśli taki folder ma index.json to powinien wyświetlić coś.
-         Jeśli nie ma subfolderów, a jesteśmy w roocie, to JS/Python może chcieć wyświetlić info.
-         Ten warunek jest trochę skomplikowany - może prościej wyświetlić poniższe jeśli nic innego nie ma.
-      #}
-      {% endif %} 
-      
-      {% if files_with_previews %}
+      {% elif not files_with_previews and not other_images and not
+      is_root_gallery_index %} {# Jeśli nie ma podfolderów, plików z podglądem,
+      innych obrazów, i nie jesteśmy w roocie, to znaczy, że jesteśmy w liściu
+      drzewa, który jest pusty - można to obsłużyć inaczej, ale jeśli taki
+      folder ma index.json to powinien wyświetlić coś. Jeśli nie ma subfolderów,
+      a jesteśmy w roocie, to JS/Python może chcieć wyświetlić info. Ten warunek
+      jest trochę skomplikowany - może prościej wyświetlić poniższe jeśli nic
+      innego nie ma. #} {% endif %} {% if files_with_previews %}
       <div class="section">
         <h2>🖼️ Pliki z podglądem ({{ files_with_previews|length }})</h2>
         <div class="gallery" id="filesWithPreviewsGallery">
@@ -78,6 +74,7 @@
               class="gallery-checkbox"
               data-file="{{ file.name }}"
               data-path="{{ file.path_absolute }}"
+              data-type="archive"
             />
             {% if file.preview_relative_path %}
             <img
@@ -111,9 +108,7 @@
           {% endfor %}
         </div>
       </div>
-      {% endif %}
-
-      {% if files_without_previews or other_images %}
+      {% endif %} {% if files_without_previews or other_images %}
       <div class="bottom-columns">
         {% if files_without_previews %}
         <div class="left-column">
@@ -121,7 +116,9 @@
           {% if files_without_previews %}
           <ul class="no-preview-list">
             {% for file in files_without_previews %}
-            <li style="border-left: 4px solid {{ file.archive_color if file.archive_color else 'transparent' }};">
+            <li
+              style="border-left: 4px solid {{ file.archive_color if file.archive_color else 'transparent' }};"
+            >
               <div class="file-item">
                 <input
                   type="checkbox"
@@ -145,9 +142,7 @@
           <p>Brak plików bez podglądu.</p>
           {% endif %}
         </div>
-        {% endif %} 
-        
-        {% if other_images %}
+        {% endif %} {% if other_images %}
         <div class="right-column">
           <h2>🎨 Pozostałe obrazy ({{ other_images|length }})</h2>
           {% if other_images %}
@@ -189,11 +184,17 @@
         </div>
         {% endif %}
       </div>
-      {% elif not subfolders and not files_with_previews and not files_without_previews and not other_images %}
-        <div class="section"><p>Ten folder jest pusty lub nie zawiera elementów do wyświetlenia w galerii.</p></div>
-      {% endif %}
-
-      {% if (files_without_previews and other_images) or (files_with_previews and other_images) or (files_with_previews and files_without_previews) %}
+      {% elif not subfolders and not files_with_previews and not
+      files_without_previews and not other_images %}
+      <div class="section">
+        <p>
+          Ten folder jest pusty lub nie zawiera elementów do wyświetlenia w
+          galerii.
+        </p>
+      </div>
+      {% endif %} {% if (files_without_previews and other_images) or
+      (files_with_previews and other_images) or (files_with_previews and
+      files_without_previews) %}
       <div class="learning-section">
         <button id="matchPreviewBtn" class="match-preview-btn" disabled>
           🎯 Dopasuj podgląd
@@ -216,7 +217,7 @@
           isRootIndex: {{ is_root_gallery_index | tojson | safe }},
           scannedRootPath: {{ scanned_root_path_abs_for_template | tojson | safe }}
       };
-      
+
       console.log("Gallery Config from Python:", window.galleryConfig);
 
       function getCurrentFolder() {
@@ -304,44 +305,121 @@
 
         if (matchBtn) {
           let localStorageAvailable = false;
-          try { if (typeof Storage !== 'undefined' && localStorage) { localStorage.setItem('test','test'); localStorage.removeItem('test'); localStorageAvailable = true; }}
-          catch (e) { console.warn('localStorage nie jest dostępny:', e); }
-          if (!localStorageAvailable) { matchBtn.style.display = 'none'; if(matchStatus) matchStatus.textContent = '⚠️ Funkcje uczenia niedostępne.'; return; }
-
-          const checkboxes = document.querySelectorAll('.file-checkbox');
-          function updateMatchButton() {
-            const archiveChecked = Array.from(checkboxes).filter(cb => cb.checked && cb.dataset.type === 'archive');
-            const imageChecked = Array.from(checkboxes).filter(cb => cb.checked && cb.dataset.type === 'image');
-            matchBtn.disabled = !(archiveChecked.length === 1 && imageChecked.length === 1);
-            if (matchStatus) matchStatus.textContent = matchBtn.disabled ? '' : `Gotowy: ${archiveChecked[0].dataset.file} ↔ ${imageChecked[0].dataset.file}`;
-          }
-          checkboxes.forEach((checkbox) => {
-            checkbox.addEventListener('change', function () {
-              if (this.checked) {
-                checkboxes.forEach((otherCb) => { if (otherCb !== this && otherCb.dataset.type === this.dataset.type) otherCb.checked = false; });
+          try {
+              if (typeof Storage !== 'undefined' && localStorage) {
+                  localStorage.setItem('test','test');
+                  localStorage.removeItem('test');
+                  localStorageAvailable = true;
               }
-              updateMatchButton();
-            });
+          } catch (e) {
+              console.warn('localStorage nie jest dostępny:', e);
+          }
+
+          if (!localStorageAvailable) {
+              matchBtn.style.display = 'none';
+              if(matchStatus) matchStatus.textContent = '⚠️ Funkcje uczenia niedostępne.';
+              return;
+          }
+
+          const checkboxes = document.querySelectorAll('.file-checkbox, .gallery-checkbox');
+
+          function updateMatchButton() {
+              const archiveChecked = Array.from(checkboxes).filter(cb => {
+                  return cb.checked && (cb.dataset.type === 'archive' || cb.classList.contains('gallery-checkbox'));
+              });
+              const imageChecked = Array.from(checkboxes).filter(cb => {
+                  return cb.checked && cb.dataset.type === 'image';
+              });
+
+              const canMatch = archiveChecked.length === 1 && imageChecked.length === 1;
+              matchBtn.disabled = !canMatch;
+
+              if (matchStatus) {
+                  if (canMatch) {
+                      const archiveName = archiveChecked[0].dataset.file;
+                      const imageName = imageChecked[0].dataset.file;
+                      matchStatus.textContent = `Gotowy: ${archiveName} ↔ ${imageName}`;
+                  } else if (archiveChecked.length === 0 && imageChecked.length === 0) {
+                      matchStatus.textContent = 'Zaznacz 1 archiwum i 1 obraz';
+                  } else if (archiveChecked.length === 0) {
+                      matchStatus.textContent = 'Zaznacz 1 archiwum';
+                  } else if (imageChecked.length === 0) {
+                      matchStatus.textContent = 'Zaznacz 1 obraz';
+                  } else {
+                      matchStatus.textContent = 'Zaznacz tylko 1 archiwum i 1 obraz';
+                  }
+              }
+          }
+
+          checkboxes.forEach((checkbox) => {
+              checkbox.addEventListener('change', function () {
+                  if (this.checked) {
+                      const currentType = this.dataset.type || (this.classList.contains('gallery-checkbox') ? 'archive' : 'unknown');
+                      // Odznacz inne checkboxy tego samego typu
+                      checkboxes.forEach((otherCb) => {
+                          if (otherCb !== this) {
+                              const otherType = otherCb.dataset.type || (otherCb.classList.contains('gallery-checkbox') ? 'archive' : 'unknown');
+                              if (otherType === currentType) {
+                                  otherCb.checked = false;
+                              }
+                          }
+                      });
+                  }
+                  updateMatchButton();
+              });
           });
+
           matchBtn.addEventListener('click', function () {
-            const archiveCb = Array.from(checkboxes).find(cb => cb.checked && cb.dataset.type === 'archive');
-            const imageCb = Array.from(checkboxes).find(cb => cb.checked && cb.dataset.type === 'image');
-            if (archiveCb && imageCb) {
-              const matchData = {
-                archiveFile: archiveCb.dataset.file, archivePath: archiveCb.dataset.path.replace(/\\/g, '/'),
-                imageFile: imageCb.dataset.file, imagePath: imageCb.dataset.path.replace(/\\/g, '/'),
-                archiveBasename: archiveCb.dataset.basename, imageBasename: imageCb.dataset.basename,
-                timestamp: new Date().toISOString(), currentFolder: getCurrentFolder()
-              };
-              console.log('🎯 Zapisuję dopasowanie:', matchData);
-              const matchKey = 'learningMatch_' + Date.now();
-              localStorage.setItem(matchKey, JSON.stringify(matchData));
-              localStorage.setItem('latestLearningMatch', matchKey);
-              if(matchStatus) matchStatus.textContent = '✅ Zapisano! Nauka algorytmu...';
-              matchBtn.disabled = true; matchBtn.textContent = '⏳ Przetwarzanie...';
-              archiveCb.checked = false; imageCb.checked = false;
-            }
+              const archiveCb = Array.from(checkboxes).find(cb => {
+                  return cb.checked && (cb.dataset.type === 'archive' || cb.classList.contains('gallery-checkbox'));
+              });
+              const imageCb = Array.from(checkboxes).find(cb => {
+                  return cb.checked && cb.dataset.type === 'image';
+              });
+
+              if (archiveCb && imageCb) {
+                  // Pobierz basename z nazwy pliku
+                  const getBasename = (filename) => {
+                      const lastDotIndex = filename.lastIndexOf('.');
+                      return lastDotIndex > 0 ? filename.substring(0, lastDotIndex) : filename;
+                  };
+
+                  const matchData = {
+                      archiveFile: archiveCb.dataset.file,
+                      archivePath: archiveCb.dataset.path.replace(/\\/g, '/'),
+                      imageFile: imageCb.dataset.file,
+                      imagePath: imageCb.dataset.path.replace(/\\/g, '/'),
+                      archiveBasename: getBasename(archiveCb.dataset.file),
+                      imageBasename: getBasename(imageCb.dataset.file),
+                      timestamp: new Date().toISOString(),
+                      currentFolder: getCurrentFolder()
+                  };
+
+                  console.log('🎯 Zapisuję dopasowanie:', matchData);
+
+                  const matchKey = 'learningMatch_' + Date.now();
+                  localStorage.setItem(matchKey, JSON.stringify(matchData));
+                  localStorage.setItem('latestLearningMatch', matchKey);
+
+                  if(matchStatus) matchStatus.textContent = '✅ Zapisano! Nauka algorytmu...';
+                  matchBtn.disabled = true;
+                  matchBtn.textContent = '⏳ Przetwarzanie...';
+
+                  // Odznacz checkboxy
+                  archiveCb.checked = false;
+                  imageCb.checked = false;
+
+                  // Przywróć stan przycisku po 3 sekundach
+                  setTimeout(() => {
+                      matchBtn.disabled = false;
+                      matchBtn.textContent = '🎯 Dopasuj podgląd';
+                      if(matchStatus) matchStatus.textContent = '';
+                  }, 3000);
+              }
           });
+
+          // Inicjalne sprawdzenie
+          updateMatchButton();
         }
 
         // Logika dla przywracania rozmiaru kafelków z localStorage (jeśli suwak jest w Pythonie)
@@ -421,7 +499,7 @@
             console.log('JS: Zapisano operację tworzenia folderu:', createData);
           }
         }
-        
+
         // Listener dla checkboxów, aby aktualizować `selectedFiles`
         document.addEventListener('change', function (e) {
           if (e.target.matches('.gallery-checkbox, .file-checkbox')) {
