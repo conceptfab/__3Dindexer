@@ -1,236 +1,172 @@
-Zmiany w pliku scanner_logic.py
-Zmiana w funkcji find_matching_preview_for_file
+Zmiana w pliku scanner_logic.py
+Przywróć ORYGINALNĄ funkcję find_matching_preview_for_file i dodaj tylko inteligentną analizę wzorców:
 pythondef extract_learning_patterns(learning_data):
-    """Analizuje dane uczenia i wyciąga wzorce dopasowania"""
+    """Analizuje dane uczenia i wyciąga proste wzorce"""
     patterns = {
-        'exact_match': [],
-        'suffix_patterns': [],
-        'prefix_patterns': [],
-        'transformation_rules': []
+        'separator_changes': [],  # _ na . itp.
+        'suffix_additions': [],   # dodatkowe części
+        'exact_mappings': {}      # dokładne mapowania
     }
     
     for match_entry in learning_data:
-        archive_basename = match_entry.get("archive_basename", "").lower().strip()
-        image_basename = match_entry.get("image_basename", "").lower().strip()
+        archive_base = match_entry.get("archive_basename", "").lower().strip()
+        image_base = match_entry.get("image_basename", "").lower().strip()
         
-        if not archive_basename or not image_basename:
+        if not archive_base or not image_base:
             continue
             
-        # 1. Dokładne dopasowanie (po usunięciu znaków specjalnych)
-        archive_clean = re.sub(r'[_\-\s\.]+', '', archive_basename)
-        image_clean = re.sub(r'[_\-\s\.]+', '', image_basename)
-        if archive_clean == image_clean:
-            patterns['exact_match'].append({
-                'archive_pattern': archive_basename,
-                'image_pattern': image_basename,
-                'type': 'exact_clean'
-            })
-            continue
-            
-        # 2. Wzorce sufiksów - obraz ma dodatkowy sufiks
-        if image_basename.startswith(archive_basename):
-            suffix = image_basename[len(archive_basename):].strip('_- ')
-            if suffix:
-                patterns['suffix_patterns'].append({
-                    'base_pattern': archive_basename,
-                    'suffix': suffix,
-                    'type': 'image_has_suffix'
+        # Dokładne mapowanie
+        patterns['exact_mappings'][archive_base] = image_base
+        
+        # Analiza separatorów: _ vs .
+        if '_' in archive_base and '.' in image_base:
+            archive_clean = archive_base.replace('_', '')
+            image_clean = image_base.replace('.', '')
+            if archive_clean == image_clean:
+                patterns['separator_changes'].append({
+                    'from': '_',
+                    'to': '.',
+                    'example_archive': archive_base,
+                    'example_image': image_base
                 })
-                
-        # 3. Wzorce prefiksów - archiwum ma dodatkowy prefiks
-        elif archive_basename.startswith(image_basename):
-            prefix = archive_basename[len(image_basename):].strip('_- ')
-            if prefix:
-                patterns['prefix_patterns'].append({
-                    'base_pattern': image_basename,
-                    'prefix': prefix,
-                    'type': 'archive_has_prefix'
-                })
-                
-        # 4. Transformacje - różne separatory, dodatkowe elementy
-        else:
-            # Sprawdź czy po normalizacji separatorów pasują
-            archive_normalized = re.sub(r'[_\-\s]+', '_', archive_basename)
-            image_normalized = re.sub(r'[_\-\s]+', '_', image_basename)
-            
-            # Znajdź wspólną część
-            common_parts = []
-            archive_parts = archive_normalized.split('_')
-            image_parts = image_normalized.split('_')
-            
-            for arch_part in archive_parts:
-                for img_part in image_parts:
-                    if len(arch_part) > 3 and len(img_part) > 3:
-                        if arch_part == img_part or arch_part in img_part or img_part in arch_part:
-                            common_parts.append((arch_part, img_part))
-                            
-            if common_parts:
-                patterns['transformation_rules'].append({
-                    'archive_pattern': archive_basename,
-                    'image_pattern': image_basename,
-                    'common_parts': common_parts,
-                    'type': 'partial_match'
+        
+        # Analiza dodatkowych części (space vs _)
+        if ' ' in image_base and '_' in archive_base:
+            archive_normalized = archive_base.replace('_', ' ')
+            if archive_normalized.strip() == image_base.strip():
+                patterns['suffix_additions'].append({
+                    'pattern': 'underscore_to_space',
+                    'example_archive': archive_base,
+                    'example_image': image_base
                 })
     
-    logger.info(f"📚 Wyciągnięto wzorce z danych uczenia:")
-    logger.info(f"  - Dokładne dopasowania: {len(patterns['exact_match'])}")
-    logger.info(f"  - Wzorce sufiksów: {len(patterns['suffix_patterns'])}")
-    logger.info(f"  - Wzorce prefiksów: {len(patterns['prefix_patterns'])}")
-    logger.info(f"  - Reguły transformacji: {len(patterns['transformation_rules'])}")
-    
+    logger.info(f"📚 Wyciągnięto wzorce: {len(patterns['exact_mappings'])} dokładnych, {len(patterns['separator_changes'])} separatorów, {len(patterns['suffix_additions'])} przestrzeni")
     return patterns
 
 def apply_learned_patterns(base_filename, image_files_in_folder, patterns):
-    """Stosuje nauczone wzorce do znalezienia podglądu"""
-    base_filename_lower = base_filename.lower().strip()
+    """Stosuje TYLKO proste wzorce z uczenia"""
+    base_lower = base_filename.lower().strip()
     
-    # 1. Sprawdź dokładne dopasowania
-    for pattern in patterns['exact_match']:
-        archive_pattern = pattern['archive_pattern']
-        image_pattern = pattern['image_pattern']
-        
-        # Sprawdź czy nazwa archiwum pasuje do wzorca
-        if base_filename_lower == archive_pattern:
-            # Szukaj obrazu pasującego do wzorca obrazu
+    # 1. Dokładne mapowanie
+    if base_lower in patterns['exact_mappings']:
+        target_image_base = patterns['exact_mappings'][base_lower]
+        for img_path in image_files_in_folder:
+            img_name = os.path.basename(img_path)
+            img_base, img_ext = os.path.splitext(img_name)
+            if img_ext.lower() in IMAGE_EXTENSIONS:
+                if img_base.lower().strip() == target_image_base:
+                    logger.info(f"🎓 DOKŁADNE MAPOWANIE: '{base_filename}' ↔ '{img_name}'")
+                    return img_path
+    
+    # 2. Wzorce separatorów (np. _ na .)
+    for pattern in patterns['separator_changes']:
+        if pattern['from'] == '_' and pattern['to'] == '.':
+            # Zamień _ na . w nazwie archiwum
+            modified_base = base_lower.replace('_', '.')
             for img_path in image_files_in_folder:
                 img_name = os.path.basename(img_path)
                 img_base, img_ext = os.path.splitext(img_name)
                 if img_ext.lower() in IMAGE_EXTENSIONS:
-                    if img_base.lower().strip() == image_pattern:
-                        logger.info(f"🎓 WZORZEC DOKŁADNY: '{base_filename}' ↔ '{img_name}'")
+                    if img_base.lower().strip() == modified_base:
+                        logger.info(f"🎓 WZORZEC SEPARATORA: '{base_filename}' ↔ '{img_name}' (_ na .)")
                         return img_path
     
-    # 2. Sprawdź wzorce sufiksów
-    for pattern in patterns['suffix_patterns']:
-        base_pattern = pattern['base_pattern']
-        suffix = pattern['suffix']
-        
-        if base_filename_lower.startswith(base_pattern) or base_pattern in base_filename_lower:
-            # Szukaj obrazu z tym sufiksem
+    # 3. Wzorce przestrzeni (_ na spacja)
+    for pattern in patterns['suffix_additions']:
+        if pattern['pattern'] == 'underscore_to_space':
+            modified_base = base_lower.replace('_', ' ').strip()
             for img_path in image_files_in_folder:
                 img_name = os.path.basename(img_path)
                 img_base, img_ext = os.path.splitext(img_name)
                 if img_ext.lower() in IMAGE_EXTENSIONS:
-                    img_base_lower = img_base.lower().strip()
-                    # Sprawdź czy obraz ma ten sufiks
-                    if suffix in img_base_lower:
-                        logger.info(f"🎓 WZORZEC SUFIKS: '{base_filename}' ↔ '{img_name}' (sufiks: {suffix})")
-                        return img_path
-    
-    # 3. Sprawdź wzorce prefiksów
-    for pattern in patterns['prefix_patterns']:
-        base_pattern = pattern['base_pattern']
-        prefix = pattern['prefix']
-        
-        if base_filename_lower.endswith(base_pattern) or base_pattern in base_filename_lower:
-            # Szukaj obrazu bez tego prefiksu
-            for img_path in image_files_in_folder:
-                img_name = os.path.basename(img_path)
-                img_base, img_ext = os.path.splitext(img_name)
-                if img_ext.lower() in IMAGE_EXTENSIONS:
-                    img_base_lower = img_base.lower().strip()
-                    if img_base_lower == base_pattern:
-                        logger.info(f"🎓 WZORZEC PREFIKS: '{base_filename}' ↔ '{img_name}' (prefiks: {prefix})")
-                        return img_path
-    
-    # 4. Sprawdź reguły transformacji
-    for pattern in patterns['transformation_rules']:
-        common_parts = pattern['common_parts']
-        
-        # Sprawdź czy nazwa archiwum zawiera wspólne części
-        matches_count = 0
-        for arch_part, img_part in common_parts:
-            if arch_part in base_filename_lower:
-                matches_count += 1
-                
-        if matches_count > 0:
-            # Szukaj obrazu zawierającego odpowiednie części
-            for img_path in image_files_in_folder:
-                img_name = os.path.basename(img_path)
-                img_base, img_ext = os.path.splitext(img_name)
-                if img_ext.lower() in IMAGE_EXTENSIONS:
-                    img_base_lower = img_base.lower().strip()
-                    img_matches = 0
-                    for arch_part, img_part in common_parts:
-                        if img_part in img_base_lower:
-                            img_matches += 1
-                    
-                    if img_matches >= matches_count:
-                        logger.info(f"🎓 WZORZEC TRANSFORMACJA: '{base_filename}' ↔ '{img_name}' (wspólne części: {matches_count})")
+                    if img_base.lower().strip() == modified_base:
+                        logger.info(f"🎓 WZORZEC PRZESTRZENI: '{base_filename}' ↔ '{img_name}' (_ na spacja)")
                         return img_path
     
     return None
 
-def find_matching_preview_for_file(
-    base_filename, image_files_in_folder, learning_data=None
-):
+def find_matching_preview_for_file(base_filename, image_files_in_folder, learning_data=None):
     """
-    Szuka pasującego pliku podglądu dla dowolnego pliku używając wzorców z uczenia.
+    PRZYWRÓCONA oryginalna funkcja + inteligentne wzorce
     """
-    logger.debug(f"🔍 Rozpoczynam szukanie podglądu dla pliku bazowego: '{base_filename}'")
-    
+    logger.debug(f"🔍 Szukam podglądu dla: '{base_filename}'")
+
     if not base_filename:
-        logger.warning("❌ Przekazano pustą nazwę bazową pliku")
+        logger.warning("❌ Przekazano pustą nazwę")
         return None
 
-    # 1. PIERWSZEŃSTWO: Zastosuj nauczone wzorce
+    # 1. NAJPIERW: Zastosuj wzorce z uczenia
     if learning_data:
-        logger.debug(f"📚 Analizuję dane uczenia dla: '{base_filename}'")
         patterns = extract_learning_patterns(learning_data)
-        
         learned_match = apply_learned_patterns(base_filename, image_files_in_folder, patterns)
         if learned_match:
-            logger.info(f"🎓 ZNALEZIONO DOPASOWANIE PRZEZ WZORCE UCZENIA: '{base_filename}' ↔ '{os.path.basename(learned_match)}'")
             return learned_match
-        else:
-            logger.debug(f"📚 Wzorce uczenia nie dały rezultatu dla '{base_filename}'")
 
-    # 2. FALLBACK: Standardowy algorytm dopasowania (pozostaje bez zmian)
-    logger.debug(f"⚙️ Używam standardowego algorytmu dopasowania dla: '{base_filename}'")
+    # 2. ORYGINALNY ALGORYTM (który działał!)
+    normalized_base_filename = base_filename.lower().strip()
     
-    # ... reszta funkcji pozostaje bez zmian ...
-Zmiana w funkcji load_learning_data
-pythondef load_learning_data():
-    """Wczytuje dane uczenia się z pliku JSON"""
-    try:
-        learning_file = config_manager.get_config_value("learning_data_file", "learning_data.json")
-        if os.path.exists(learning_file):
-            with open(learning_file, "r", encoding="utf-8") as f:
-                data = json.load(f)
-                logger.info(f"Wczytano {len(data)} wpisów z danych uczenia się ({learning_file}).")
-                
-                # Analiza jakości danych uczenia
-                valid_entries = 0
-                for entry in data:
-                    if entry.get("archive_basename") and entry.get("image_basename"):
-                        valid_entries += 1
-                
-                logger.info(f"📊 Jakość danych uczenia: {valid_entries}/{len(data)} prawidłowych wpisów")
-                
-                return data
-        logger.info(f"Plik danych uczenia się ({learning_file}) nie istnieje.")
-        return []
-    except json.JSONDecodeError as e:
-        logger.error(f"Błąd dekodowania JSON w pliku danych uczenia się: {e}")
-        return []
-    except Exception as e:
-        logger.error(f"Błąd wczytywania danych uczenia się: {e}", exc_info=True)
-        return []
+    # Podstawowe warianty
+    name_variants = set([normalized_base_filename])
+    name_variants.add(normalized_base_filename.replace("_", " "))
+    name_variants.add(normalized_base_filename.replace(" ", "_"))
+    name_variants.add(normalized_base_filename.replace("-", " "))
+    name_variants.add(normalized_base_filename.replace(" ", "-"))
+    name_variants.add(normalized_base_filename.replace("_", "-"))
+    name_variants.add(normalized_base_filename.replace("-", "_"))
+    
+    # Dodaj warianty z typowymi sufiksami
+    extended_variants = set(name_variants)
+    common_suffixes = ["001", "preview", "thumb", "1", "2", "3", "0", "cover"]
+    for variant in name_variants:
+        for separator in ["_", "-", " "]:
+            for suffix in common_suffixes:
+                extended_variants.add(variant + separator + suffix)
+    
+    # Sprawdź dokładne dopasowania
+    for img_full_path in image_files_in_folder:
+        img_name = os.path.basename(img_full_path)
+        img_base, img_ext = os.path.splitext(img_name)
+        if img_ext.lower() not in IMAGE_EXTENSIONS:
+            continue
+            
+        img_base_lower = img_base.lower().strip()
+        if img_base_lower in extended_variants:
+            logger.info(f"✅ Dopasowanie: '{base_filename}' ↔ '{img_name}'")
+            return img_full_path
+    
+    # Sprawdź prefiksy
+    for img_full_path in image_files_in_folder:
+        img_name = os.path.basename(img_full_path)
+        img_base, img_ext = os.path.splitext(img_name)
+        if img_ext.lower() not in IMAGE_EXTENSIONS:
+            continue
+            
+        img_base_lower = img_base.lower().strip()
+        for variant in name_variants:
+            if len(variant) >= 3 and img_base_lower.startswith(variant):
+                remaining = img_base_lower[len(variant):]
+                if not remaining or remaining[0] in [' ', '_', '-'] or remaining[0].isdigit():
+                    logger.info(f"✅ Dopasowanie prefiksu: '{base_filename}' ↔ '{img_name}'")
+                    return img_full_path
+
+    logger.debug(f"❌ Nie znaleziono podglądu dla: '{base_filename}'")
+    return None
 Główne zmiany:
 
-Wyciąganie wzorców zamiast zapamiętywania konkretnych przypadków
-Analiza typów dopasowań:
+Przywróciłem oryginalny algorytm - ten który działał dla prostych przypadków
+Dodałem tylko proste wzorce z danych uczenia:
 
-Dokładne dopasowania (po oczyszczeniu ze znaków specjalnych)
-Wzorce sufiksów (obraz ma dodatkowy sufiks)
-Wzorce prefiksów (archiwum ma dodatkowy prefiks)
-Reguły transformacji (wspólne części w różnych formatach)
+Dokładne mapowania (archive_basename → image_basename)
+Zamiana _ na . (328995_55c5cfe0d1a6d → 328995.55c5cfe0d1a6d)
+Zamiana _ na spację (dla przypadków Porsche)
 
 
-Inteligentne stosowanie wyciągniętych wzorców do nowych plików
+Wzorce działają PRZED oryginalnym algorytmem, więc nie psują istniejących dopasowań
 
-Teraz system będzie:
+Teraz system powinien:
 
-Z przykładu "Porsche..." wyciągnie wzorzec, że obrazy mogą mieć spacje tam gdzie archiwum ma podkreślniki
-Z przykładu "328995..." nauczy się, że kropki mogą być zamieniane na podkreślniki
-Te wzorce będzie stosował do nowych, niewidzianych wcześniej plików
+Nadal działać dla wszystkich prostych przypadków jak wcześniej
+DODATKOWO stosować nauczone wzorce dla skomplikowanych przypadków
+Wyciągać wnioski z przykładów zamiast je zapamiętywać
+
+Sprawdź czy teraz działa dla Twoich przykładów!
