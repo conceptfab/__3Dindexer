@@ -1054,61 +1054,90 @@ class MainWindow(QMainWindow):
         except Exception as e:
             print(f"❌ Błąd handle_create_folder_from_js: {e}", flush=True)
 
-    def process_move_files_python_logic(self, files_to_process_info: list):
-        if not self.current_work_directory:
-            QMessageBox.warning(self, "Błąd", "Nie wybrano folderu roboczego.")
+    def process_move_files_python_logic(self, selected_files):
+        if not selected_files:
+            QMessageBox.warning(self, "Błąd", "Nie wybrano żadnych plików.")
             return
-        if not files_to_process_info:
-            QMessageBox.information(
-                self, "Brak plików", "Nie wybrano plików do przeniesienia."
-            )
-            return
-        target_folder = QFileDialog.getExistingDirectory(
-            self, "Wybierz folder docelowy", self.current_work_directory
-        )
-        if not target_folder:
-            return
-        files_to_move_final = set()
-        moved_count = 0
-        errors = []
-        folders_affected = set()
-        for file_info in files_to_process_info:
-            source_path_str = file_info.get("path", "")
-            source_path = os.path.normpath(source_path_str)
-            if not source_path_str or not os.path.exists(source_path):
-                self.log_message(f"Plik {source_path} nie istnieje.", "WARNING")
-                continue
-            files_to_move_final.add(source_path)
-        for path_to_move in files_to_move_final:
-            file_name = os.path.basename(path_to_move)
-            target_file_path = os.path.join(target_folder, file_name)
-            try:
-                if os.path.exists(target_file_path):
-                    reply = QMessageBox.question(
+
+        # Sprawdź, czy wszystkie pliki mają odpowiednie pary
+        for file_info in selected_files:
+            if file_info["type"] == "archive_with_preview":
+                if not file_info.get("archive") or not file_info.get("preview"):
+                    QMessageBox.warning(
                         self,
-                        "Plik istnieje",
-                        f"Plik {file_name} istnieje. Zastąpić?",
-                        QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                        "Błąd",
+                        f"Brak pary plików dla {file_info.get('archive', {}).get('name', 'nieznany plik')}",
                     )
-                    if reply != QMessageBox.StandardButton.Yes:
-                        continue
-                shutil.move(path_to_move, target_file_path)
-                moved_count += 1
-                folders_affected.add(os.path.dirname(path_to_move))
-                folders_affected.add(target_folder)
-                self.log_message(f"✅ Przeniesiono: {file_name} do {target_folder}")
+                    return
+            elif file_info["type"] == "archive":
+                if not file_info.get("archive"):
+                    QMessageBox.warning(
+                        self,
+                        "Błąd",
+                        f"Brak informacji o archiwum dla {file_info.get('archive', {}).get('name', 'nieznany plik')}",
+                    )
+                    return
+            elif file_info["type"] == "image":
+                if not file_info.get("preview"):
+                    QMessageBox.warning(
+                        self,
+                        "Błąd",
+                        f"Brak informacji o podglądzie dla {file_info.get('preview', {}).get('name', 'nieznany plik')}",
+                    )
+                    return
+
+        # Przygotuj listę plików do przeniesienia
+        files_to_move = []
+        source_folders = set()  # Zbiór folderów źródłowych
+        for file_info in selected_files:
+            if file_info["type"] == "archive_with_preview":
+                files_to_move.extend(
+                    [
+                        (file_info["archive"]["path"], file_info["archive"]["name"]),
+                        (file_info["preview"]["path"], file_info["preview"]["name"]),
+                    ]
+                )
+                source_folders.add(os.path.dirname(file_info["archive"]["path"]))
+            elif file_info["type"] == "archive":
+                files_to_move.append(
+                    (file_info["archive"]["path"], file_info["archive"]["name"])
+                )
+                source_folders.add(os.path.dirname(file_info["archive"]["path"]))
+            elif file_info["type"] == "image":
+                files_to_move.append(
+                    (file_info["preview"]["path"], file_info["preview"]["name"])
+                )
+                source_folders.add(os.path.dirname(file_info["preview"]["path"]))
+
+        # Pokaż dialog wyboru folderu
+        target_dir = QFileDialog.getExistingDirectory(
+            self,
+            "Wybierz folder docelowy",
+            self.current_work_directory,
+            QFileDialog.Option.ShowDirsOnly,
+        )
+
+        if not target_dir:
+            return
+
+        # Przenieś pliki
+        for source_path, file_name in files_to_move:
+            target_path = os.path.join(target_dir, file_name)
+            try:
+                shutil.move(source_path, target_path)
+                print(f"Przeniesiono {file_name} do {target_dir}")
             except Exception as e:
-                errors.append(f"Błąd przenoszenia {file_name}: {str(e)}")
-        if moved_count > 0:
-            QMessageBox.information(
-                self, "Sukces", f"Przeniesiono {moved_count} plików."
-            )
-            for folder in folders_affected:
-                self.rescan_and_rebuild_specific_folder(folder)
-        if errors:
-            QMessageBox.warning(
-                self, "Błędy", "Błędy podczas przenoszenia:\n" + "\n".join(errors)
-            )
+                QMessageBox.warning(
+                    self,
+                    "Błąd",
+                    f"Nie udało się przenieść pliku {file_name}: {str(e)}",
+                )
+                return
+
+        # Odśwież wszystkie zaangażowane foldery
+        for source_folder in source_folders:
+            self.rescan_and_rebuild_specific_folder(source_folder)
+        self.rescan_and_rebuild_specific_folder(target_dir)
 
     def process_rename_files_python_logic(
         self, files_to_process_info: list, new_base_name: str
@@ -1202,7 +1231,51 @@ class MainWindow(QMainWindow):
         if not self.current_work_directory:
             QMessageBox.warning(self, "Błąd", "Nie wybrano folderu.")
             return
-        js_code = """(function() { const s=[]; document.querySelectorAll('.gallery-checkbox:checked, .file-checkbox:checked').forEach(c => s.push({name:c.dataset.file, path:c.dataset.path, type:c.dataset.type})); return JSON.stringify(s); })();"""
+        js_code = """
+        (function() {
+            const s = [];
+            document.querySelectorAll('.gallery-checkbox:checked, .file-checkbox:checked').forEach(c => {
+                const type = c.dataset.type;
+                const name = c.dataset.file;
+                const path = c.dataset.path;
+                const archivePath = c.dataset.archivePath;
+                const previewPath = c.dataset.previewPath;
+                const archiveName = c.dataset.archiveName;
+                const previewName = c.dataset.previewName;
+                
+                if (type === 'archive_with_preview') {
+                    s.push({
+                        type: type,
+                        archive: {
+                            name: archiveName,
+                            path: archivePath
+                        },
+                        preview: {
+                            name: previewName,
+                            path: previewPath
+                        }
+                    });
+                } else if (type === 'archive') {
+                    s.push({
+                        type: type,
+                        archive: {
+                            name: name,
+                            path: path
+                        }
+                    });
+                } else if (type === 'image') {
+                    s.push({
+                        type: type,
+                        preview: {
+                            name: name,
+                            path: path
+                        }
+                    });
+                }
+            });
+            return JSON.stringify(s);
+        })();
+        """
         if self.web_view.page():
             self.web_view.page().runJavaScript(
                 js_code,
@@ -1257,26 +1330,52 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "Błąd", "Nie wybrano folderu.")
             return
 
-        # Pobierz aktualny folder z galerii zamiast całego katalogu roboczego
+        # Pobierz aktualny folder z galerii
         current_gallery_folder = self.get_current_gallery_folder_from_js()
         if not current_gallery_folder:
-            current_gallery_folder = self.current_work_directory
-
-        reply = QMessageBox.question(
-            self,
-            "Potwierdzenie",
-            f"Usunąć puste foldery w:\n{current_gallery_folder}?\n(Pusty = brak plików lub tylko index.json)",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-            QMessageBox.StandardButton.No,
-        )
-        if reply != QMessageBox.StandardButton.Yes:
+            QMessageBox.warning(self, "Błąd", "Nie można określić aktualnego folderu.")
             return
 
-        deleted_count = 0
-        errors = []
+        if not os.path.isdir(current_gallery_folder):
+            QMessageBox.warning(
+                self, "Błąd", f"Folder {current_gallery_folder} nie istnieje."
+            )
+            return
 
-        # Skanuj tylko bezpośrednie podfoldery aktualnego folderu
+        # Sprawdź czy folder jest pusty
         try:
+            has_empty_folders = False
+            for entry in os.scandir(current_gallery_folder):
+                if entry.is_dir(follow_symlinks=False):
+                    dir_content = os.listdir(entry.path)
+                    if not dir_content or (
+                        len(dir_content) == 1 and dir_content[0] == "index.json"
+                    ):
+                        has_empty_folders = True
+                        break
+
+            if not has_empty_folders:
+                QMessageBox.information(
+                    self,
+                    "Info",
+                    f"W folderze:\n{current_gallery_folder}\nnie znaleziono pustych podfolderów.",
+                )
+                return
+
+            reply = QMessageBox.question(
+                self,
+                "Potwierdzenie",
+                f"Usunąć puste foldery w:\n{current_gallery_folder}?\n\n(Pusty = brak plików lub tylko index.json)",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No,
+            )
+            if reply != QMessageBox.StandardButton.Yes:
+                return
+
+            deleted_count = 0
+            errors = []
+
+            # Skanuj tylko bezpośrednie podfoldery aktualnego folderu
             for entry in os.scandir(current_gallery_folder):
                 if entry.is_dir(follow_symlinks=False):
                     try:
@@ -1316,10 +1415,12 @@ class MainWindow(QMainWindow):
                 return null;
             })();
             """
-            # Synchroniczne wywołanie - może nie działać we wszystkich przypadkach
-            # Alternatywnie można użyć callback lub promise
-            return None  # Fallback - użyj current_work_directory
-        except:
+            result = self.web_view.page().runJavaScript(js_code, lambda x: x)
+            if result:
+                return result
+            return None
+        except Exception as e:
+            print(f"❌ Błąd get_current_gallery_folder_from_js: {e}", flush=True)
             return None
 
     def load_learning_data(self):
@@ -1525,6 +1626,13 @@ class MainWindow(QMainWindow):
         if not specific_ai_gallery_output_path:
             return None
         return os.path.join(specific_ai_gallery_output_path, "index.html")
+
+    def refresh_current_directory(self):
+        """Odświeża aktualny folder poprzez przebudowanie galerii"""
+        if self.current_work_directory:
+            self.rebuild_gallery(auto_show_after_build=True)
+        else:
+            self.log_message("Brak wybranego folderu do odświeżenia.", level="WARNING")
 
 
 if __name__ == "__main__":

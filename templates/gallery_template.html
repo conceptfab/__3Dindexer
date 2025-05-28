@@ -74,7 +74,11 @@
               class="gallery-checkbox"
               data-file="{{ file.name }}"
               data-path="{{ file.path_absolute }}"
-              data-type="archive"
+              data-type="archive_with_preview"
+              data-archive-name="{{ file.name }}"
+              data-archive-path="{{ file.path_absolute }}"
+              data-preview-name="{{ file.preview_name if file.preview_name else '' }}"
+              data-preview-path="{{ file.preview_path_absolute if file.preview_path_absolute else '' }}"
             />
             {% if file.preview_relative_path %}
             <img
@@ -128,6 +132,8 @@
                   data-path="{{ file.path_absolute }}"
                   data-basename="{{ file.name.split('.')[0] if '.' in file.name else file.name }}"
                   data-type="archive"
+                  data-archive-name="{{ file.name }}"
+                  data-archive-path="{{ file.path_absolute }}"
                 />
                 <a
                   href="{{ file.archive_link }}"
@@ -158,6 +164,8 @@
                   data-path="{{ image.path_absolute }}"
                   data-basename="{{ image.name.split('.')[0] if '.' in image.name else image.name }}"
                   data-type="image"
+                  data-preview-name="{{ image.name }}"
+                  data-preview-path="{{ image.path_absolute }}"
                 />
                 <a
                   href="{{ image.file_link }}"
@@ -569,29 +577,130 @@
         let selectedFiles = []; // Zmienna globalna w tym zakresie DOMContentLoaded
 
         function updateSelectedFiles() {
+          console.log('\n=== AKTUALIZACJA WYBRANYCH PLIKÓW ===');
           selectedFiles = [];
+          const selectedArchives = new Map(); // Map do przechowywania wybranych archiwów
+          const selectedImages = new Map();   // Map do przechowywania wybranych obrazów
+
+          // Najpierw zbierz wszystkie wybrane pliki
+          console.log('Sprawdzam checkboxy w galerii...');
           document.querySelectorAll('.gallery-checkbox:checked').forEach(cb => {
-            selectedFiles.push({ type: 'archive_with_preview', name: cb.dataset.file, path: cb.dataset.path, preview: cb.closest('.gallery-item').querySelector('img')?.src || null });
+            const type = cb.dataset.type;
+            const archiveName = cb.dataset.archiveName;
+            const archivePath = cb.dataset.archivePath;
+            const previewName = cb.dataset.previewName;
+            const previewPath = cb.dataset.previewPath;
+            console.log(`Znaleziono zaznaczony plik w galerii: ${archiveName} (${type})`);
+
+            if (type === 'archive_with_preview') {
+              selectedFiles.push({
+                type: type,
+                archive: {
+                  name: archiveName,
+                  path: archivePath
+                },
+                preview: {
+                  name: previewName,
+                  path: previewPath
+                }
+              });
+              console.log(`Dodano parę plików: ${archiveName} + ${previewName}`);
+            }
           });
-          document.querySelectorAll('.file-checkbox:checked[data-type="archive"]').forEach(cb => {
-            selectedFiles.push({ type: 'archive', name: cb.dataset.file, path: cb.dataset.path, basename: cb.dataset.basename });
+
+          console.log('Sprawdzam checkboxy w liście plików...');
+          document.querySelectorAll('.file-checkbox:checked').forEach(cb => {
+            const type = cb.dataset.type;
+            const name = cb.dataset.file;
+            const path = cb.dataset.path;
+            console.log(`Znaleziono zaznaczony plik w liście: ${name} (${type})`);
+
+            if (type === 'archive') {
+              selectedFiles.push({
+                type: type,
+                archive: {
+                  name: name,
+                  path: path
+                }
+              });
+              console.log(`Dodano archiwum: ${name}`);
+            } else if (type === 'image') {
+              selectedFiles.push({
+                type: type,
+                preview: {
+                  name: name,
+                  path: path
+                }
+              });
+              console.log(`Dodano obraz: ${name}`);
+            }
           });
-          document.querySelectorAll('.file-checkbox:checked[data-type="image"]').forEach(cb => {
-            selectedFiles.push({ type: 'image', name: cb.dataset.file, path: cb.dataset.path, basename: cb.dataset.basename });
+
+          // Teraz połącz pliki w pary
+          console.log('\nŁączenie plików w pary...');
+          for (const [basename, archive] of selectedArchives) {
+            const image = selectedImages.get(basename);
+            if (image) {
+              // Jeśli mamy parę, dodaj ją jako archive_with_preview
+              selectedFiles.push({
+                type: 'archive_with_preview',
+                archive: archive,
+                preview: image
+              });
+              selectedImages.delete(basename); // Usuń użyty obraz
+              console.log(`Utworzono parę: ${archive.name} + ${image.name}`);
+            } else {
+              // Jeśli nie ma pary, dodaj samo archiwum
+              selectedFiles.push({
+                type: 'archive',
+                archive: archive
+              });
+              console.log(`Dodano pojedyncze archiwum: ${archive.name}`);
+            }
+          }
+
+          // Dodaj pozostałe obrazy, które nie zostały sparowane
+          for (const image of selectedImages.values()) {
+            selectedFiles.push({
+              type: 'image',
+              preview: image
+            });
+            console.log(`Dodano pojedynczy obraz: ${image.name}`);
+          }
+
+          console.log('\n=== PODSUMOWANIE WYBRANYCH PLIKÓW ===');
+          console.log(`Łączna liczba wybranych elementów: ${selectedFiles.length}`);
+          selectedFiles.forEach((file, index) => {
+            console.log(`${index + 1}. Typ: ${file.type}`);
+            if (file.type === 'archive_with_preview') {
+              console.log(`   - Archiwum: ${file.archive.name}`);
+              console.log(`   - Podgląd: ${file.preview.name}`);
+            } else if (file.type === 'archive') {
+              console.log(`   - Archiwum: ${file.archive.name}`);
+            } else if (file.type === 'image') {
+              console.log(`   - Obraz: ${file.preview.name}`);
+            }
           });
-          console.log('JS: Wybrane pliki:', selectedFiles);
         }
 
         // Te funkcje zapisują dane do localStorage, Python je odczytuje
-        window.jsShowMoveFilesDialog = function() { // Zmieniono nazwę, aby uniknąć konfliktu
+        window.jsShowMoveFilesDialog = function() {
+          console.log('\n=== ROZPOCZYNAM OPERACJĘ PRZENOSZENIA ===');
           updateSelectedFiles();
-          if (selectedFiles.length === 0) { alert('Najpierw zaznacz pliki do przeniesienia'); return; }
+          if (selectedFiles.length === 0) {
+            console.log('❌ Brak wybranych plików do przeniesienia');
+            alert('Najpierw zaznacz pliki do przeniesienia');
+            return;
+          }
           const moveData = { files: selectedFiles };
           const moveKey = 'moveFiles_' + Date.now();
+          console.log('Zapisuję dane do localStorage:');
+          console.log('- Klucz:', moveKey);
+          console.log('- Dane:', moveData);
           localStorage.setItem(moveKey, JSON.stringify(moveData));
           localStorage.setItem('latestMoveFiles', moveKey);
           document.querySelectorAll('.gallery-checkbox, .file-checkbox').forEach(cb => { cb.checked = false; });
-          console.log('JS: Zapisano operację przenoszenia:', moveData);
+          console.log('✅ Operacja przenoszenia zainicjowana');
         }
 
         window.jsShowRenameFilesDialog = function() { // Zmieniono nazwę
@@ -633,6 +742,73 @@
           if (e.target.matches('.gallery-checkbox, .file-checkbox')) {
             updateSelectedFiles(); // Aktualizuj przy każdej zmianie zaznaczenia
           }
+        });
+
+        // Przycisk przenoszenia plików
+        document.getElementById('moveFilesBtn').addEventListener('click', function() {
+          const selectedFiles = [];
+
+          // Najpierw zbierz wszystkie wybrane pliki
+          console.log('Sprawdzam checkboxy w galerii...');
+          document.querySelectorAll('.gallery-checkbox:checked').forEach(cb => {
+            const type = cb.dataset.type;
+            const archiveName = cb.dataset.archiveName;
+            const archivePath = cb.dataset.archivePath;
+            const previewName = cb.dataset.previewName;
+            const previewPath = cb.dataset.previewPath;
+            console.log(`Znaleziono zaznaczony plik w galerii: ${archiveName} (${type})`);
+
+            if (type === 'archive_with_preview') {
+              selectedFiles.push({
+                type: type,
+                archive: {
+                  name: archiveName,
+                  path: archivePath
+                },
+                preview: {
+                  name: previewName,
+                  path: previewPath
+                }
+              });
+              console.log(`Dodano parę plików: ${archiveName} + ${previewName}`);
+            }
+          });
+
+          console.log('Sprawdzam checkboxy w liście plików...');
+          document.querySelectorAll('.file-checkbox:checked').forEach(cb => {
+            const type = cb.dataset.type;
+            const name = cb.dataset.file;
+            const path = cb.dataset.path;
+            console.log(`Znaleziono zaznaczony plik w liście: ${name} (${type})`);
+
+            if (type === 'archive') {
+              selectedFiles.push({
+                type: type,
+                archive: {
+                  name: name,
+                  path: path
+                }
+              });
+              console.log(`Dodano archiwum: ${name}`);
+            } else if (type === 'image') {
+              selectedFiles.push({
+                type: type,
+                preview: {
+                  name: name,
+                  path: path
+                }
+              });
+              console.log(`Dodano obraz: ${name}`);
+            }
+          });
+
+          if (selectedFiles.length === 0) {
+            alert('Nie wybrano żadnych plików do przeniesienia.');
+            return;
+          }
+
+          console.log('Wybrane pliki:', selectedFiles);
+          window.pywebview.api.process_move_files_python_logic(selectedFiles);
         });
 
       });
