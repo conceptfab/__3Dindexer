@@ -1,0 +1,1 @@
+pip install sentence-transformers numpy scikit-learn
