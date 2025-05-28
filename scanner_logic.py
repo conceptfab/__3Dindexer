@@ -390,9 +390,8 @@ def process_folder(folder_path, progress_callback=None):
         if progress_callback:
             progress_callback(f"📚 Zastosowano {len(learning_data)} nauczonych dopasowań")
 
-    # ZABEZPIECZENIE PRZED ZAWIESZENIEM
+    # ULEPSZONE ZABEZPIECZENIE PRZED ZAWIESZENIEM
     try:
-        # Sprawdź czy folder jest dostępny w rozsądnym czasie
         if not os.path.exists(folder_path):
             msg = f"❌ Folder nie istnieje: {folder_path}"
             logger.error(msg)
@@ -406,6 +405,15 @@ def process_folder(folder_path, progress_callback=None):
             if progress_callback:
                 progress_callback(msg)
             return
+            
+        # Sprawdź czy folder nie jest symbolicznym linkiem (może powodować zapętlenia)
+        if os.path.islink(folder_path):
+            msg = f"⚠️ Pomijam link symboliczny: {folder_path}"
+            logger.warning(msg)
+            if progress_callback:
+                progress_callback(msg)
+            return
+            
     except Exception as e:
         msg = f"❌ Błąd dostępu do folderu {folder_path}: {e}"
         logger.error(msg)
@@ -414,89 +422,73 @@ def process_folder(folder_path, progress_callback=None):
         return
 
     index_data = {
-        "folder_info": None,  # Będzie zaktualizowane na końcu
+        "folder_info": None,
         "files_with_previews": [],
         "files_without_previews": [],
-        "other_images": [],  # Obrazy, które nie są podglądami niczego
+        "other_images": [],
     }
 
     all_items_in_dir = []
     subdirectories = []
 
     try:
-        # TIMEOUT dla skanowania foldera - zmniejszony do 15 sekund
-        import threading
-        import time
-
-        class TimeoutError(Exception):
-            pass
-
-        def timeout_handler():
-            logger.error(f"⏰ Timeout podczas skanowania {folder_path}")
-            logger.error(f"📊 Stan przed timeoutem: {len(all_items_in_dir)} elementów")
-            logger.error(f"📁 Ostatnio przetworzone elementy: {all_items_in_dir[-5:] if all_items_in_dir else 'brak'}")
-            raise TimeoutError(f"⏰ Timeout podczas skanowania {folder_path}")
-
-        timer = threading.Timer(15.0, timeout_handler)  # 15 sekund timeout
-        timer.start()
-
+        # UPROSZCZONY MECHANIZM SKANOWANIA BEZ TIMEOUT THREADING
+        logger.info(f"📂 Rozpoczynam skanowanie zawartości: {folder_path}")
+        start_time = time.time()
+        
+        # Użyj prostego os.listdir zamiast os.scandir dla lepszej stabilności
         try:
-            logger.info(f"📂 Rozpoczynam skanowanie zawartości: {folder_path}")
-            start_time = time.time()
-            last_progress_time = start_time
-            items_since_last_progress = 0
-
-            with os.scandir(folder_path) as entries:
-                for entry in entries:
-                    try:
-                        current_time = time.time()
-                        items_since_last_progress += 1
-
-                        # Loguj postęp co 5 sekund lub co 50 elementów
-                        if current_time - last_progress_time > 5 or items_since_last_progress >= 50:
-                            logger.debug(f"⏱️ Przetworzono {len(all_items_in_dir)} elementów w {current_time - start_time:.1f}s")
-                            last_progress_time = current_time
-                            items_since_last_progress = 0
-
-                        # Sprawdź czy nie przekroczyliśmy czasu
-                        if current_time - start_time > 14:  # Zostaw 1 sekundę na obsługę timeoutu
-                            logger.warning(f"⚠️ Zbliżamy się do limitu czasu w {folder_path}")
-                            logger.warning(f"📊 Przetworzono {len(all_items_in_dir)} elementów")
-                            raise TimeoutError(f"⏰ Przekroczono limit czasu w {folder_path}")
-
-                        all_items_in_dir.append(entry.name)
-                        if entry.is_dir():
-                            subdirectories.append(entry.path)
-                            logger.debug(f"📁 Znaleziono podfolder: {entry.path}")
-                        else:
-                            logger.debug(f"📄 Znaleziono plik: {entry.name}")
-
-                        if progress_callback and len(all_items_in_dir) % 50 == 0:
-                            progress_callback(
-                                f"📊 Przetworzono {len(all_items_in_dir)} elementów w {folder_path}"
-                            )
-                    except (OSError, PermissionError) as e:
-                        logger.error(f"❌ Błąd dostępu do {entry.name}: {e}")
-                        if progress_callback:
-                            progress_callback(
-                                f"❌ Błąd dostępu do {entry.name}: {e}"
-                            )
+            items = os.listdir(folder_path)
+            logger.debug(f"📊 Znaleziono {len(items)} elementów w {folder_path}")
+            
+            for item_name in items:
+                current_time = time.time()
+                
+                # Bezpieczny timeout bez threading - przerwij po 30 sekundach
+                if current_time - start_time > 30:
+                    logger.warning(f"⏰ Przekroczono limit czasu w {folder_path}")
+                    break
+                
+                try:
+                    item_path = os.path.join(folder_path, item_name)
+                    
+                    # Sprawdź czy element rzeczywiście istnieje (może być usunięty podczas skanowania)
+                    if not os.path.exists(item_path):
+                        logger.debug(f"⚠️ Element nie istnieje już: {item_name}")
                         continue
-        finally:
-            timer.cancel()  # Wyłącz timeout
-            elapsed_time = time.time() - start_time
-            logger.debug(f"⏱️ Skanowanie {folder_path} zajęło {elapsed_time:.2f} sekund")
-            logger.debug(f"📊 Łącznie przetworzono {len(all_items_in_dir)} elementów")
+                    
+                    all_items_in_dir.append(item_name)
+                    
+                    if os.path.isdir(item_path):
+                        # Dodatkowe sprawdzenie dla folderów
+                        if not os.path.islink(item_path):  # Pomijaj linki symboliczne
+                            subdirectories.append(item_path)
+                            logger.debug(f"📁 Znaleziono podfolder: {item_path}")
+                    else:
+                        logger.debug(f"📄 Znaleziono plik: {item_name}")
+                        
+                    # Raportuj postęp co 100 elementów
+                    if len(all_items_in_dir) % 100 == 0 and progress_callback:
+                        progress_callback(f"📊 Przetworzono {len(all_items_in_dir)} elementów w {folder_path}")
+                        
+                except (OSError, PermissionError) as e:
+                    logger.error(f"❌ Błąd dostępu do {item_name}: {e}")
+                    continue
+                    
+        except (OSError, PermissionError) as e:
+            logger.error(f"❌ Błąd listowania folderu {folder_path}: {e}")
+            if progress_callback:
+                progress_callback(f"❌ Błąd listowania folderu {folder_path}: {e}")
+            return
+            
+        elapsed_time = time.time() - start_time
+        logger.debug(f"⏱️ Skanowanie {folder_path} zajęło {elapsed_time:.2f} sekund")
+        logger.debug(f"📊 Łącznie przetworzono {len(all_items_in_dir)} elementów")
 
-    except TimeoutError as e:
-        logger.error(f"⏰ {e}")
+    except Exception as e:
+        logger.error(f"❌ Nieoczekiwany błąd w {folder_path}: {e}")
         if progress_callback:
-            progress_callback(f"⏰ {e}")
-        return
-    except (OSError, PermissionError) as e:
-        logger.error(f"❌ Błąd dostępu do folderu {folder_path}: {e}")
-        if progress_callback:
-            progress_callback(f"❌ Błąd dostępu do folderu {folder_path}: {e}")
+            progress_callback(f"❌ Nieoczekiwany błąd w {folder_path}: {e}")
         return
 
     logger.info(f"📊 Znaleziono {len(all_items_in_dir)} elementów w {folder_path}")

@@ -134,7 +134,23 @@ def process_single_index_json(
         ),
     )
     print(f"📂 Tworzenie katalogu galerii: {current_gallery_html_dir}")
-    os.makedirs(current_gallery_html_dir, exist_ok=True)
+    
+    # ULEPSZONE TWORZENIE KATALOGU
+    try:
+        os.makedirs(current_gallery_html_dir, exist_ok=True)
+        
+        # Sprawdź czy katalog został utworzony i jest zapisywalny
+        if not os.path.exists(current_gallery_html_dir):
+            raise OSError(f"Nie udało się utworzyć katalogu: {current_gallery_html_dir}")
+            
+        if not os.access(current_gallery_html_dir, os.W_OK):
+            raise PermissionError(f"Brak uprawnień do zapisu w: {current_gallery_html_dir}")
+            
+    except Exception as e:
+        print(f"❌ Błąd tworzenia katalogu galerii: {e}")
+        if progress_callback:
+            progress_callback(f"❌ Błąd tworzenia katalogu galerii: {e}")
+        return None
 
     output_html_file = os.path.join(current_gallery_html_dir, "index.html")
     print(f"📄 Plik wyjściowy: {output_html_file}")
@@ -149,7 +165,16 @@ def process_single_index_json(
         return output_html_file
 
     print("🔄 Przygotowywanie danych do szablonu...")
-    template = template_env.get_template("gallery_template.html")
+    
+    # SPRAWDZENIE SZABLONU PRZED UŻYCIEM
+    try:
+        template = template_env.get_template("gallery_template.html")
+        print("✅ Szablon załadowany pomyślnie")
+    except Exception as e:
+        print(f"❌ Błąd ładowania szablonu: {e}")
+        if progress_callback:
+            progress_callback(f"❌ Błąd ładowania szablonu: {e}")
+        return None
 
     template_data = {
         "folder_info": data.get("folder_info", {}),
@@ -288,48 +313,60 @@ def process_single_index_json(
         html_content = template.render(template_data)
         print(f"✅ Szablon wyrenderowany, rozmiar: {len(html_content)} bajtów")
         
+        # ULEPSZONE SPRAWDZENIE I ZAPIS HTML
+        if not html_content or len(html_content) < 100:
+            raise ValueError("Wygenerowany HTML jest pusty lub zbyt krótki")
+        
         print(f"💾 Zapisuję plik HTML: {output_html_file}")
+        
+        # Dodatkowe sprawdzenia przed zapisem
+        output_dir = os.path.dirname(output_html_file)
+        if not os.path.exists(output_dir):
+            print(f"📂 Tworzę katalog: {output_dir}")
+            os.makedirs(output_dir, exist_ok=True)
+        
+        # ATOMOWY ZAPIS - zapisz do pliku tymczasowego, potem przenieś
+        temp_html_file = output_html_file + ".tmp"
         try:
-            # Sprawdź czy katalog istnieje
-            output_dir = os.path.dirname(output_html_file)
-            if not os.path.exists(output_dir):
-                print(f"📂 Tworzę katalog: {output_dir}")
-                os.makedirs(output_dir, exist_ok=True)
-            
-            # Sprawdź uprawnienia do zapisu
-            if os.path.exists(output_html_file):
-                print(f"ℹ️ Plik już istnieje, sprawdzam uprawnienia...")
-                if not os.access(output_dir, os.W_OK):
-                    print(f"❌ Brak uprawnień do zapisu w katalogu: {output_dir}")
-                    raise PermissionError(f"Brak uprawnień do zapisu w {output_dir}")
-            
-            # Zapisz plik
-            with open(output_html_file, "w", encoding="utf-8") as f:
+            with open(temp_html_file, "w", encoding="utf-8") as f:
                 f.write(html_content)
-            print(f"✅ Zapisano galerię: {output_html_file}")
             
-            # Sprawdź czy plik został zapisany
-            if os.path.exists(output_html_file):
-                file_size = os.path.getsize(output_html_file)
-                print(f"✅ Plik zapisany, rozmiar: {file_size} bajtów")
+            # Sprawdź czy plik tymczasowy został zapisany poprawnie
+            if os.path.exists(temp_html_file) and os.path.getsize(temp_html_file) > 0:
+                # Przenieś z tymczasowego do docelowego
+                if os.path.exists(output_html_file):
+                    os.remove(output_html_file)
+                os.rename(temp_html_file, output_html_file)
+                print(f"✅ Zapisano galerię: {output_html_file}")
             else:
-                print(f"❌ Plik nie został zapisany mimo braku błędów!")
+                raise IOError("Plik tymczasowy nie został zapisany poprawnie")
                 
-        except PermissionError as e:
-            print(f"❌ Błąd uprawnień przy zapisie {output_html_file}: {e}")
-            raise
-        except IOError as e:
-            print(f"❌ Błąd I/O przy zapisie {output_html_file}: {e}")
-            raise
-        except Exception as e:
-            print(f"❌ Nieoczekiwany błąd przy zapisie {output_html_file}: {e}")
-            raise
+        except Exception as write_error:
+            # Usuń plik tymczasowy w przypadku błędu
+            if os.path.exists(temp_html_file):
+                try:
+                    os.remove(temp_html_file)
+                except:
+                    pass
+            raise write_error
+            
+        # Sprawdź czy plik został zapisany
+        if os.path.exists(output_html_file):
+            file_size = os.path.getsize(output_html_file)
+            print(f"✅ Plik zapisany, rozmiar: {file_size} bajtów")
+            
+            # Dodatkowa walidacja HTML
+            if file_size < 100:
+                raise ValueError(f"Zapisany plik HTML jest zbyt mały: {file_size} bajtów")
+        else:
+            raise IOError("Plik nie został zapisany mimo braku błędów!")
             
         if progress_callback:
             progress_callback(f"✅ Zapisano galerię: {output_html_file}")
+            
     except Exception as e:
         print(f"❌ Błąd generowania HTML dla {index_json_path}: {e}")
-        print(f"📊 Stan template_data: {template_data.keys()}")
+        print(f"📊 Stan template_data: {list(template_data.keys()) if 'template_data' in locals() else 'template_data nie istnieje'}")
         if progress_callback:
             progress_callback(f"❌ Błąd generowania HTML dla {index_json_path}: {e}")
         return None
@@ -354,7 +391,19 @@ def generate_full_gallery(scanned_root_path, gallery_cache_root_dir="."):
         gallery_cache_root_dir, sanitized_folder_name
     )
     print(f"📂 Katalog wyjściowy galerii: {gallery_output_base_path}")
-    os.makedirs(gallery_output_base_path, exist_ok=True)
+    
+    # ULEPSZONE TWORZENIE KATALOGÓW
+    try:
+        os.makedirs(gallery_output_base_path, exist_ok=True)
+        
+        # Sprawdź uprawnienia
+        if not os.access(gallery_output_base_path, os.W_OK):
+            print(f"❌ Brak uprawnień do zapisu w: {gallery_output_base_path}")
+            return None
+            
+    except Exception as e:
+        print(f"❌ Błąd tworzenia katalogu galerii: {e}")
+        return None
 
     script_dir = os.path.dirname(os.path.abspath(__file__))
     template_dir = os.path.join(script_dir, "templates")
@@ -370,47 +419,116 @@ def generate_full_gallery(scanned_root_path, gallery_cache_root_dir="."):
             print("❌ Nie można znaleźć katalogu szablonów.")
             return None
 
-    env = Environment(loader=FileSystemLoader(template_dir))
-    print("✅ Zainicjalizowano środowisko szablonów")
+    # SPRAWDZENIE SZABLONÓW
+    template_html_path = os.path.join(template_dir, "gallery_template.html")
+    if not os.path.exists(template_html_path):
+        print(f"❌ Nie znaleziono szablonu HTML: {template_html_path}")
+        return None
 
+    try:
+        env = Environment(loader=FileSystemLoader(template_dir))
+        # Test ładowania szablonu
+        test_template = env.get_template("gallery_template.html")
+        print("✅ Zainicjalizowano środowisko szablonów")
+    except Exception as e:
+        print(f"❌ Błąd inicjalizacji szablonów: {e}")
+        return None
+
+    # ULEPSZONE KOPIOWANIE CSS
     css_src_path = os.path.join(template_dir, "gallery_styles.css")
     css_dest_path = os.path.join(gallery_output_base_path, "gallery_styles.css")
+    
+    print(f"📄 Kopiowanie CSS z {css_src_path} do {css_dest_path}")
+    
     if os.path.exists(css_src_path):
         try:
+            # Sprawdź czy plik CSS nie jest pusty
+            css_size = os.path.getsize(css_src_path)
+            if css_size == 0:
+                print(f"⚠️ Plik CSS jest pusty: {css_src_path}")
+            else:
+                print(f"📄 Rozmiar pliku CSS: {css_size} bajtów")
+            
+            # Kopiuj z zachowaniem metadanych
             shutil.copy2(css_src_path, css_dest_path)
-            print(f"✅ Skopiowano plik CSS: {css_dest_path}")
+            
+            # Sprawdź czy skopiowano poprawnie
+            if os.path.exists(css_dest_path):
+                copied_size = os.path.getsize(css_dest_path)
+                if copied_size == css_size:
+                    print(f"✅ Skopiowano plik CSS: {css_dest_path} ({copied_size} bajtów)")
+                else:
+                    print(f"⚠️ Rozmiar skopiowanego CSS nie zgadza się: {copied_size} vs {css_size}")
+            else:
+                print(f"❌ Plik CSS nie został skopiowany: {css_dest_path}")
+                
         except Exception as e:
             print(f"❌ Nie można skopiować gallery_styles.css: {e}")
+            return None
     else:
-        print(f"⚠️ Nie znaleziono pliku gallery_styles.css w {css_src_path}")
+        print(f"❌ Nie znaleziono pliku gallery_styles.css w {css_src_path}")
+        return None
 
     root_gallery_html_path = None
     processed_count = 0
     error_count = 0
 
     print("🔄 Rozpoczynam przetwarzanie plików index.json...")
-    for dirpath, _, filenames in os.walk(scanned_root_path):
+    
+    # ULEPSZONE PRZETWARZANIE Z LEPSZĄ OBSŁUGĄ BŁĘDÓW
+    for dirpath, dirnames, filenames in os.walk(scanned_root_path):
+        # Pomijaj linki symboliczne
+        if os.path.islink(dirpath):
+            print(f"⚠️ Pomijam link symboliczny: {dirpath}")
+            continue
+            
         if "index.json" in filenames:
             index_json_file = os.path.join(dirpath, "index.json")
             print(f"📄 Przetwarzanie: {index_json_file}")
+            
             try:
+                # Sprawdź czy plik index.json nie jest uszkodzony
+                with open(index_json_file, 'r', encoding='utf-8') as f:
+                    json.load(f)  # Test czy JSON jest poprawny
+                
                 generated_html = process_single_index_json(
                     index_json_file, scanned_root_path, gallery_output_base_path, env, print
                 )
-                if generated_html:
+                
+                if generated_html and os.path.exists(generated_html):
                     processed_count += 1
                     if dirpath == scanned_root_path:
                         root_gallery_html_path = generated_html
                         print(f"✅ Znaleziono główny plik HTML: {generated_html}")
+                else:
+                    error_count += 1
+                    print(f"❌ Nie udało się wygenerować HTML dla: {index_json_file}")
+                    
+            except json.JSONDecodeError as e:
+                error_count += 1
+                print(f"❌ Uszkodzony plik JSON {index_json_file}: {e}")
             except Exception as e:
                 error_count += 1
                 print(f"❌ Błąd przetwarzania {index_json_file}: {e}")
 
     print(f"📊 Podsumowanie: Przetworzono {processed_count} plików, {error_count} błędów")
-    if root_gallery_html_path:
+    
+    if root_gallery_html_path and os.path.exists(root_gallery_html_path):
         print(f"✅ Generowanie galerii zakończone. Główny plik HTML: {root_gallery_html_path}")
+        
+        # DODATKOWA WALIDACJA GŁÓWNEGO PLIKU
+        try:
+            file_size = os.path.getsize(root_gallery_html_path)
+            if file_size < 100:
+                print(f"⚠️ Główny plik HTML jest podejrzanie mały: {file_size} bajtów")
+            else:
+                print(f"✅ Rozmiar głównego pliku HTML: {file_size} bajtów")
+        except Exception as e:
+            print(f"⚠️ Nie można sprawdzić rozmiaru głównego pliku: {e}")
+        
     else:
         print("❌ Generowanie galerii nie powiodło się lub nie znaleziono index.json w głównym katalogu.")
+        
     return root_gallery_html_path
 
 
