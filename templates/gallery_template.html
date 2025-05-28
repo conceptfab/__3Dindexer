@@ -225,13 +225,14 @@
             return window.galleryConfig.currentFolderAbsPath.replace(/\\/g, '/');
         }
         console.warn("getCurrentFolder: Fallback, window.galleryConfig.currentFolderAbsPath not available.");
-        // Ten fallback jest mniej idealny, ale jako zabezpieczenie
-        const fallbackPath = {{ folder_info.path_absolute | tojson | safe if folder_info and folder_info.path_absolute else "'.'".format() }};
+        const fallbackPath = {{ folder_info.path_absolute | tojson | safe if folder_info and folder_info.path_absolute else "'.'"}};
         return fallbackPath.replace(/\\/g, '/');
       }
       window.getCurrentFolder = getCurrentFolder;
 
       document.addEventListener('DOMContentLoaded', function () {
+        console.log('=== ROZPOCZYNAM INICJALIZACJĘ GALERII ===');
+
         const galleries = [
           document.getElementById('filesWithPreviewsGallery'),
         ].filter(Boolean);
@@ -242,14 +243,28 @@
         const matchBtn = document.getElementById('matchPreviewBtn');
         const matchStatus = document.getElementById('matchStatus');
 
+        console.log('Elementy galerii:', {
+          galleries: galleries.length,
+          previewModal: !!previewModal,
+          matchBtn: !!matchBtn
+        });
+
         function showPreview(imageSrc) {
+          console.log('showPreview wywołane z:', imageSrc);
           if (!imageSrc) return;
+          if (!previewModal || !previewBackdrop || !previewImg) {
+            console.error('Brak elementów modal');
+            return;
+          }
           previewImg.src = imageSrc;
           previewModal.classList.add('show');
           previewBackdrop.classList.add('show');
+          console.log('Podgląd wyświetlony');
         }
 
         function hidePreview() {
+          console.log('hidePreview wywołane');
+          if (!previewModal || !previewBackdrop || !previewImg) return;
           previewModal.classList.remove('show');
           previewBackdrop.classList.remove('show');
           previewImg.src = '';
@@ -282,17 +297,24 @@
 
         galleries.forEach((gallery) => {
           const images = gallery.querySelectorAll('.preview-image');
-          images.forEach((img) => {
+          console.log(`Znaleziono ${images.length} obrazów podglądu w galerii`);
+
+          images.forEach((img, index) => {
+            console.log(`Dodaję listenery do obrazu ${index}:`, img.src);
             let hoverTimeout;
+
             img.addEventListener('mouseenter', function () {
+              console.log('MOUSEENTER na obrazie:', this.src);
               hoverTimeout = setTimeout(() => {
-                console.log('Hover na obrazie, pokazuję podgląd');
+                console.log('Timeout - pokazuję podgląd obrazu');
                 showPreview(this.src);
-              }, 2000); // ZMIENIONO NA 2 SEKUNDY
+              }, 1000); // Zmniejszone na 1 sekundę dla testów
             });
+
             img.addEventListener('mouseleave', function () {
+              console.log('MOUSELEAVE na obrazie');
               clearTimeout(hoverTimeout);
-              hidePreview(); // DODANO - ukryj od razu po opuszczeniu
+              hidePreview();
             });
           });
         });
@@ -320,12 +342,15 @@
         document.addEventListener('keydown', function (e) { if (e.key === 'Escape') hidePreview(); });
 
         if (matchBtn) {
+          console.log('=== INICJALIZUJĘ FUNKCJĘ DOPASOWANIA ===');
+
           let localStorageAvailable = false;
           try {
               if (typeof Storage !== 'undefined' && localStorage) {
                   localStorage.setItem('test','test');
                   localStorage.removeItem('test');
                   localStorageAvailable = true;
+                  console.log('localStorage jest dostępny');
               }
           } catch (e) {
               console.warn('localStorage nie jest dostępny:', e);
@@ -337,22 +362,45 @@
               return;
           }
 
+          // POPRAWIONY SELEKTOR - wszystkie checkboxy
           const checkboxes = document.querySelectorAll('input[type="checkbox"]');
-          console.log('Znaleziono checkboxów:', checkboxes.length);
+          console.log('=== CHECKBOXY ===');
+          console.log('Wszystkich checkboxów:', checkboxes.length);
+
+          // Debugowanie każdego checkboxa
+          checkboxes.forEach((cb, i) => {
+            console.log(`Checkbox ${i}:`, {
+              file: cb.dataset.file,
+              type: cb.dataset.type,
+              hasGalleryClass: cb.classList.contains('gallery-checkbox'),
+              hasFileClass: cb.classList.contains('file-checkbox')
+            });
+          });
 
           function updateMatchButton() {
-              console.log('Aktualizuję stan przycisku dopasowania');
+              console.log('=== AKTUALIZUJĘ STAN PRZYCISKU ===');
 
-              const archiveChecked = Array.from(checkboxes).filter(cb => {
-                  const isArchive = cb.dataset.type === 'archive' || cb.classList.contains('gallery-checkbox');
-                  console.log(`Checkbox ${cb.dataset.file}: checked=${cb.checked}, isArchive=${isArchive}`);
-                  return cb.checked && isArchive;
-              });
+              const archiveChecked = [];
+              const imageChecked = [];
 
-              const imageChecked = Array.from(checkboxes).filter(cb => {
-                  const isImage = cb.dataset.type === 'image';
-                  console.log(`Checkbox ${cb.dataset.file}: checked=${cb.checked}, isImage=${isImage}`);
-                  return cb.checked && isImage;
+              checkboxes.forEach((cb) => {
+                  if (cb.checked) {
+                      const isArchive = cb.dataset.type === 'archive' || cb.classList.contains('gallery-checkbox');
+                      const isImage = cb.dataset.type === 'image';
+
+                      console.log(`Zaznaczony checkbox ${cb.dataset.file}:`, {
+                        type: cb.dataset.type,
+                        isArchive,
+                        isImage,
+                        hasGalleryClass: cb.classList.contains('gallery-checkbox')
+                      });
+
+                      if (isArchive) {
+                          archiveChecked.push(cb);
+                      } else if (isImage) {
+                          imageChecked.push(cb);
+                      }
+                  }
               });
 
               console.log('Archiwów zaznaczonych:', archiveChecked.length);
@@ -366,6 +414,7 @@
                       const archiveName = archiveChecked[0].dataset.file;
                       const imageName = imageChecked[0].dataset.file;
                       matchStatus.textContent = `Gotowy: ${archiveName} ↔ ${imageName}`;
+                      console.log('PRZYCISK AKTYWNY - gotowy do dopasowania');
                   } else if (archiveChecked.length === 0 && imageChecked.length === 0) {
                       matchStatus.textContent = 'Zaznacz 1 archiwum i 1 obraz';
                   } else if (archiveChecked.length === 0) {
@@ -378,15 +427,26 @@
               }
           }
 
-          checkboxes.forEach((checkbox) => {
+          // DODAJ LISTENERY DO WSZYSTKICH CHECKBOXÓW
+          checkboxes.forEach((checkbox, index) => {
+              console.log(`Dodaję listener do checkboxa ${index}:`, checkbox.dataset.file);
+
               checkbox.addEventListener('change', function () {
+                  console.log(`=== CHECKBOX ZMIENIONY ===`);
+                  console.log('Plik:', this.dataset.file);
+                  console.log('Nowy stan:', this.checked);
+                  console.log('Typ:', this.dataset.type);
+
                   if (this.checked) {
                       const currentType = this.dataset.type || (this.classList.contains('gallery-checkbox') ? 'archive' : 'unknown');
+                      console.log('Typ bieżącego checkboxa:', currentType);
+
                       // Odznacz inne checkboxy tego samego typu
                       checkboxes.forEach((otherCb) => {
                           if (otherCb !== this) {
                               const otherType = otherCb.dataset.type || (otherCb.classList.contains('gallery-checkbox') ? 'archive' : 'unknown');
-                              if (otherType === currentType) {
+                              if (otherType === currentType && otherCb.checked) {
+                                  console.log(`Odznaczam ${otherCb.dataset.file} (ten sam typ)`);
                                   otherCb.checked = false;
                               }
                           }
