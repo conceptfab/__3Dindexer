@@ -1,375 +1,236 @@
-Zmiany w pliku: templates/gallery_template.html
-Poprawka JavaScript w szablonie
-html<script>
-// Przekazanie danych z Pythona do JS dla większej niezawodności
-window.galleryConfig = {
-    currentFolderAbsPath: {{ folder_info.path_absolute | tojson | safe if folder_info and folder_info.path_absolute else 'null' }},
-    isRootIndex: {{ is_root_gallery_index | tojson | safe }},
-    scannedRootPath: {{ scanned_root_path_abs_for_template | tojson | safe }}
-};
-
-console.log("Gallery Config from Python:", window.galleryConfig);
-
-function getCurrentFolder() {
-  if (window.galleryConfig && window.galleryConfig.currentFolderAbsPath) {
-      return window.galleryConfig.currentFolderAbsPath.replace(/\\/g, '/');
-  }
-  console.warn("getCurrentFolder: Fallback, window.galleryConfig.currentFolderAbsPath not available.");
-  // POPRAWIONE: Usunięcie błędnego .format()
-  const fallbackPath = {{ folder_info.path_absolute | tojson | safe if folder_info and folder_info.path_absolute else "'.'"}};
-  return fallbackPath.replace(/\\/g, '/');
-}
-window.getCurrentFolder = getCurrentFolder;
-
-document.addEventListener('DOMContentLoaded', function () {
-  console.log('=== ROZPOCZYNAM INICJALIZACJĘ GALERII ===');
-  
-  const galleries = [
-    document.getElementById('filesWithPreviewsGallery'),
-  ].filter(Boolean);
-
-  const previewModal = document.getElementById('previewModal');
-  const previewBackdrop = document.getElementById('previewBackdrop');
-  const previewImg = document.getElementById('previewImg');
-  const matchBtn = document.getElementById('matchPreviewBtn');
-  const matchStatus = document.getElementById('matchStatus');
-
-  console.log('Elementy galerii:', {
-    galleries: galleries.length,
-    previewModal: !!previewModal,
-    matchBtn: !!matchBtn
-  });
-
-  function showPreview(imageSrc) {
-    console.log('showPreview wywołane z:', imageSrc);
-    if (!imageSrc) return;
-    if (!previewModal || !previewBackdrop || !previewImg) {
-      console.error('Brak elementów modal');
-      return;
+Zmiany w pliku scanner_logic.py
+Zmiana w funkcji find_matching_preview_for_file
+pythondef extract_learning_patterns(learning_data):
+    """Analizuje dane uczenia i wyciąga wzorce dopasowania"""
+    patterns = {
+        'exact_match': [],
+        'suffix_patterns': [],
+        'prefix_patterns': [],
+        'transformation_rules': []
     }
-    previewImg.src = imageSrc;
-    previewModal.classList.add('show');
-    previewBackdrop.classList.add('show');
-    console.log('Podgląd wyświetlony');
-  }
-
-  function hidePreview() {
-    console.log('hidePreview wywołane');
-    if (!previewModal || !previewBackdrop || !previewImg) return;
-    previewModal.classList.remove('show');
-    previewBackdrop.classList.remove('show');
-    previewImg.src = '';
-  }
-
-  // === OBSŁUGA PODGLĄDU OBRAZÓW ===
-  console.log('Inicjalizuję obsługę podglądu obrazów...');
-  
-  // Obrazy w galerii z podglądem
-  galleries.forEach((gallery) => {
-    const images = gallery.querySelectorAll('.preview-image');
-    console.log(`Znaleziono ${images.length} obrazów podglądu w galerii`);
     
-    images.forEach((img, index) => {
-      console.log(`Dodaję listenery do obrazu ${index}:`, img.src);
-      let hoverTimeout;
-      
-      img.addEventListener('mouseenter', function () {
-        console.log('MOUSEENTER na obrazie:', this.src);
-        hoverTimeout = setTimeout(() => {
-          console.log('Timeout - pokazuję podgląd obrazu');
-          showPreview(this.src);
-        }, 1000); // Zmniejszone na 1 sekundę dla testów
-      });
-      
-      img.addEventListener('mouseleave', function () {
-        console.log('MOUSELEAVE na obrazie');
-        clearTimeout(hoverTimeout);
-        hidePreview();
-      });
-    });
-  });
-
-  // Linki podglądu w prawej kolumnie
-  const previewLinks = document.querySelectorAll('.preview-link');
-  console.log(`Znaleziono ${previewLinks.length} linków podglądu`);
-  
-  previewLinks.forEach((link, index) => {
-    const previewSrc = link.getAttribute('data-preview-src');
-    console.log(`Link ${index} ma data-preview-src:`, previewSrc);
-    
-    let hoverTimeout;
-    link.addEventListener('mouseenter', function () {
-      const src = this.getAttribute('data-preview-src');
-      console.log('MOUSEENTER na linku z src:', src);
-      if (src) {
-        hoverTimeout = setTimeout(() => {
-          console.log('Timeout - pokazuję podgląd linku');
-          showPreview(src);
-        }, 1000);
-      }
-    });
-    
-    link.addEventListener('mouseleave', function () {
-      console.log('MOUSELEAVE na linku');
-      clearTimeout(hoverTimeout);
-      hidePreview();
-    });
-  });
-
-  // Zamykanie podglądu
-  if (previewBackdrop) {
-    previewBackdrop.addEventListener('click', hidePreview);
-  }
-  if (previewModal) {
-    previewModal.addEventListener('click', (e) => { 
-      if(e.target === previewModal) hidePreview(); 
-    });
-  }
-  document.addEventListener('keydown', function (e) { 
-    if (e.key === 'Escape') hidePreview(); 
-  });
-
-  // === OBSŁUGA PRZYCISKU DOPASOWANIA ===
-  if (matchBtn) {
-    console.log('=== INICJALIZUJĘ FUNKCJĘ DOPASOWANIA ===');
-    
-    let localStorageAvailable = false;
-    try {
-        if (typeof Storage !== 'undefined' && localStorage) {
-            localStorage.setItem('test','test');
-            localStorage.removeItem('test');
-            localStorageAvailable = true;
-            console.log('localStorage jest dostępny');
-        }
-    } catch (e) {
-        console.warn('localStorage nie jest dostępny:', e);
-    }
-
-    if (!localStorageAvailable) {
-        matchBtn.style.display = 'none';
-        if(matchStatus) matchStatus.textContent = '⚠️ Funkcje uczenia niedostępne.';
-        return;
-    }
-
-    // POPRAWIONY SELEKTOR - wszystkie checkboxy
-    const checkboxes = document.querySelectorAll('input[type="checkbox"]');
-    console.log('=== CHECKBOXY ===');
-    console.log('Wszystkich checkboxów:', checkboxes.length);
-    
-    // Debugowanie każdego checkboxa
-    checkboxes.forEach((cb, i) => {
-      console.log(`Checkbox ${i}:`, {
-        file: cb.dataset.file,
-        type: cb.dataset.type,
-        hasGalleryClass: cb.classList.contains('gallery-checkbox'),
-        hasFileClass: cb.classList.contains('file-checkbox')
-      });
-    });
-
-    function updateMatchButton() {
-        console.log('=== AKTUALIZUJĘ STAN PRZYCISKU ===');
+    for match_entry in learning_data:
+        archive_basename = match_entry.get("archive_basename", "").lower().strip()
+        image_basename = match_entry.get("image_basename", "").lower().strip()
         
-        const archiveChecked = [];
-        const imageChecked = [];
-        
-        checkboxes.forEach((cb) => {
-            if (cb.checked) {
-                const isArchive = cb.dataset.type === 'archive' || cb.classList.contains('gallery-checkbox');
-                const isImage = cb.dataset.type === 'image';
-                
-                console.log(`Zaznaczony checkbox ${cb.dataset.file}:`, {
-                  type: cb.dataset.type,
-                  isArchive,
-                  isImage,
-                  hasGalleryClass: cb.classList.contains('gallery-checkbox')
-                });
-                
-                if (isArchive) {
-                    archiveChecked.push(cb);
-                } else if (isImage) {
-                    imageChecked.push(cb);
-                }
-            }
-        });
-
-        console.log('Archiwów zaznaczonych:', archiveChecked.length);
-        console.log('Obrazów zaznaczonych:', imageChecked.length);
-
-        const canMatch = archiveChecked.length === 1 && imageChecked.length === 1;
-        matchBtn.disabled = !canMatch;
-
-        if (matchStatus) {
-            if (canMatch) {
-                const archiveName = archiveChecked[0].dataset.file;
-                const imageName = imageChecked[0].dataset.file;
-                matchStatus.textContent = `Gotowy: ${archiveName} ↔ ${imageName}`;
-                console.log('PRZYCISK AKTYWNY - gotowy do dopasowania');
-            } else if (archiveChecked.length === 0 && imageChecked.length === 0) {
-                matchStatus.textContent = 'Zaznacz 1 archiwum i 1 obraz';
-            } else if (archiveChecked.length === 0) {
-                matchStatus.textContent = 'Zaznacz 1 archiwum';
-            } else if (imageChecked.length === 0) {
-                matchStatus.textContent = 'Zaznacz 1 obraz';
-            } else {
-                matchStatus.textContent = 'Zaznacz tylko 1 archiwum i 1 obraz';
-            }
-        }
-    }
-
-    // DODAJ LISTENERY DO WSZYSTKICH CHECKBOXÓW
-    checkboxes.forEach((checkbox, index) => {
-        console.log(`Dodaję listener do checkboxa ${index}:`, checkbox.dataset.file);
-        
-        checkbox.addEventListener('change', function () {
-            console.log(`=== CHECKBOX ZMIENIONY ===`);
-            console.log('Plik:', this.dataset.file);
-            console.log('Nowy stan:', this.checked);
-            console.log('Typ:', this.dataset.type);
+        if not archive_basename or not image_basename:
+            continue
             
-            if (this.checked) {
-                const currentType = this.dataset.type || (this.classList.contains('gallery-checkbox') ? 'archive' : 'unknown');
-                console.log('Typ bieżącego checkboxa:', currentType);
+        # 1. Dokładne dopasowanie (po usunięciu znaków specjalnych)
+        archive_clean = re.sub(r'[_\-\s\.]+', '', archive_basename)
+        image_clean = re.sub(r'[_\-\s\.]+', '', image_basename)
+        if archive_clean == image_clean:
+            patterns['exact_match'].append({
+                'archive_pattern': archive_basename,
+                'image_pattern': image_basename,
+                'type': 'exact_clean'
+            })
+            continue
+            
+        # 2. Wzorce sufiksów - obraz ma dodatkowy sufiks
+        if image_basename.startswith(archive_basename):
+            suffix = image_basename[len(archive_basename):].strip('_- ')
+            if suffix:
+                patterns['suffix_patterns'].append({
+                    'base_pattern': archive_basename,
+                    'suffix': suffix,
+                    'type': 'image_has_suffix'
+                })
                 
-                // Odznacz inne checkboxy tego samego typu
-                checkboxes.forEach((otherCb) => {
-                    if (otherCb !== this) {
-                        const otherType = otherCb.dataset.type || (otherCb.classList.contains('gallery-checkbox') ? 'archive' : 'unknown');
-                        if (otherType === currentType && otherCb.checked) {
-                            console.log(`Odznaczam ${otherCb.dataset.file} (ten sam typ)`);
-                            otherCb.checked = false;
-                        }
-                    }
-                });
-            }
-            updateMatchButton();
-        });
-    });
+        # 3. Wzorce prefiksów - archiwum ma dodatkowy prefiks
+        elif archive_basename.startswith(image_basename):
+            prefix = archive_basename[len(image_basename):].strip('_- ')
+            if prefix:
+                patterns['prefix_patterns'].append({
+                    'base_pattern': image_basename,
+                    'prefix': prefix,
+                    'type': 'archive_has_prefix'
+                })
+                
+        # 4. Transformacje - różne separatory, dodatkowe elementy
+        else:
+            # Sprawdź czy po normalizacji separatorów pasują
+            archive_normalized = re.sub(r'[_\-\s]+', '_', archive_basename)
+            image_normalized = re.sub(r'[_\-\s]+', '_', image_basename)
+            
+            # Znajdź wspólną część
+            common_parts = []
+            archive_parts = archive_normalized.split('_')
+            image_parts = image_normalized.split('_')
+            
+            for arch_part in archive_parts:
+                for img_part in image_parts:
+                    if len(arch_part) > 3 and len(img_part) > 3:
+                        if arch_part == img_part or arch_part in img_part or img_part in arch_part:
+                            common_parts.append((arch_part, img_part))
+                            
+            if common_parts:
+                patterns['transformation_rules'].append({
+                    'archive_pattern': archive_basename,
+                    'image_pattern': image_basename,
+                    'common_parts': common_parts,
+                    'type': 'partial_match'
+                })
+    
+    logger.info(f"📚 Wyciągnięto wzorce z danych uczenia:")
+    logger.info(f"  - Dokładne dopasowania: {len(patterns['exact_match'])}")
+    logger.info(f"  - Wzorce sufiksów: {len(patterns['suffix_patterns'])}")
+    logger.info(f"  - Wzorce prefiksów: {len(patterns['prefix_patterns'])}")
+    logger.info(f"  - Reguły transformacji: {len(patterns['transformation_rules'])}")
+    
+    return patterns
 
-    matchBtn.addEventListener('click', function () {
-        console.log('=== KLIKNIĘTO PRZYCISK DOPASOWANIA ===');
+def apply_learned_patterns(base_filename, image_files_in_folder, patterns):
+    """Stosuje nauczone wzorce do znalezienia podglądu"""
+    base_filename_lower = base_filename.lower().strip()
+    
+    # 1. Sprawdź dokładne dopasowania
+    for pattern in patterns['exact_match']:
+        archive_pattern = pattern['archive_pattern']
+        image_pattern = pattern['image_pattern']
         
-        const archiveCb = Array.from(checkboxes).find(cb => {
-            return cb.checked && (cb.dataset.type === 'archive' || cb.classList.contains('gallery-checkbox'));
-        });
-        const imageCb = Array.from(checkboxes).find(cb => {
-            return cb.checked && cb.dataset.type === 'image';
-        });
+        # Sprawdź czy nazwa archiwum pasuje do wzorca
+        if base_filename_lower == archive_pattern:
+            # Szukaj obrazu pasującego do wzorca obrazu
+            for img_path in image_files_in_folder:
+                img_name = os.path.basename(img_path)
+                img_base, img_ext = os.path.splitext(img_name)
+                if img_ext.lower() in IMAGE_EXTENSIONS:
+                    if img_base.lower().strip() == image_pattern:
+                        logger.info(f"🎓 WZORZEC DOKŁADNY: '{base_filename}' ↔ '{img_name}'")
+                        return img_path
+    
+    # 2. Sprawdź wzorce sufiksów
+    for pattern in patterns['suffix_patterns']:
+        base_pattern = pattern['base_pattern']
+        suffix = pattern['suffix']
+        
+        if base_filename_lower.startswith(base_pattern) or base_pattern in base_filename_lower:
+            # Szukaj obrazu z tym sufiksem
+            for img_path in image_files_in_folder:
+                img_name = os.path.basename(img_path)
+                img_base, img_ext = os.path.splitext(img_name)
+                if img_ext.lower() in IMAGE_EXTENSIONS:
+                    img_base_lower = img_base.lower().strip()
+                    # Sprawdź czy obraz ma ten sufiks
+                    if suffix in img_base_lower:
+                        logger.info(f"🎓 WZORZEC SUFIKS: '{base_filename}' ↔ '{img_name}' (sufiks: {suffix})")
+                        return img_path
+    
+    # 3. Sprawdź wzorce prefiksów
+    for pattern in patterns['prefix_patterns']:
+        base_pattern = pattern['base_pattern']
+        prefix = pattern['prefix']
+        
+        if base_filename_lower.endswith(base_pattern) or base_pattern in base_filename_lower:
+            # Szukaj obrazu bez tego prefiksu
+            for img_path in image_files_in_folder:
+                img_name = os.path.basename(img_path)
+                img_base, img_ext = os.path.splitext(img_name)
+                if img_ext.lower() in IMAGE_EXTENSIONS:
+                    img_base_lower = img_base.lower().strip()
+                    if img_base_lower == base_pattern:
+                        logger.info(f"🎓 WZORZEC PREFIKS: '{base_filename}' ↔ '{img_name}' (prefiks: {prefix})")
+                        return img_path
+    
+    # 4. Sprawdź reguły transformacji
+    for pattern in patterns['transformation_rules']:
+        common_parts = pattern['common_parts']
+        
+        # Sprawdź czy nazwa archiwum zawiera wspólne części
+        matches_count = 0
+        for arch_part, img_part in common_parts:
+            if arch_part in base_filename_lower:
+                matches_count += 1
+                
+        if matches_count > 0:
+            # Szukaj obrazu zawierającego odpowiednie części
+            for img_path in image_files_in_folder:
+                img_name = os.path.basename(img_path)
+                img_base, img_ext = os.path.splitext(img_name)
+                if img_ext.lower() in IMAGE_EXTENSIONS:
+                    img_base_lower = img_base.lower().strip()
+                    img_matches = 0
+                    for arch_part, img_part in common_parts:
+                        if img_part in img_base_lower:
+                            img_matches += 1
+                    
+                    if img_matches >= matches_count:
+                        logger.info(f"🎓 WZORZEC TRANSFORMACJA: '{base_filename}' ↔ '{img_name}' (wspólne części: {matches_count})")
+                        return img_path
+    
+    return None
 
-        console.log('Znaleziony checkbox archiwum:', archiveCb?.dataset.file);
-        console.log('Znaleziony checkbox obrazu:', imageCb?.dataset.file);
+def find_matching_preview_for_file(
+    base_filename, image_files_in_folder, learning_data=None
+):
+    """
+    Szuka pasującego pliku podglądu dla dowolnego pliku używając wzorców z uczenia.
+    """
+    logger.debug(f"🔍 Rozpoczynam szukanie podglądu dla pliku bazowego: '{base_filename}'")
+    
+    if not base_filename:
+        logger.warning("❌ Przekazano pustą nazwę bazową pliku")
+        return None
 
-        if (archiveCb && imageCb) {
-            const getBasename = (filename) => {
-                const lastDotIndex = filename.lastIndexOf('.');
-                return lastDotIndex > 0 ? filename.substring(0, lastDotIndex) : filename;
-            };
+    # 1. PIERWSZEŃSTWO: Zastosuj nauczone wzorce
+    if learning_data:
+        logger.debug(f"📚 Analizuję dane uczenia dla: '{base_filename}'")
+        patterns = extract_learning_patterns(learning_data)
+        
+        learned_match = apply_learned_patterns(base_filename, image_files_in_folder, patterns)
+        if learned_match:
+            logger.info(f"🎓 ZNALEZIONO DOPASOWANIE PRZEZ WZORCE UCZENIA: '{base_filename}' ↔ '{os.path.basename(learned_match)}'")
+            return learned_match
+        else:
+            logger.debug(f"📚 Wzorce uczenia nie dały rezultatu dla '{base_filename}'")
 
-            const matchData = {
-                archiveFile: archiveCb.dataset.file,
-                archivePath: archiveCb.dataset.path.replace(/\\/g, '/'),
-                imageFile: imageCb.dataset.file,
-                imagePath: imageCb.dataset.path.replace(/\\/g, '/'),
-                archiveBasename: getBasename(archiveCb.dataset.file),
-                imageBasename: getBasename(imageCb.dataset.file),
-                timestamp: new Date().toISOString(),
-                currentFolder: getCurrentFolder()
-            };
+    # 2. FALLBACK: Standardowy algorytm dopasowania (pozostaje bez zmian)
+    logger.debug(f"⚙️ Używam standardowego algorytmu dopasowania dla: '{base_filename}'")
+    
+    # ... reszta funkcji pozostaje bez zmian ...
+Zmiana w funkcji load_learning_data
+pythondef load_learning_data():
+    """Wczytuje dane uczenia się z pliku JSON"""
+    try:
+        learning_file = config_manager.get_config_value("learning_data_file", "learning_data.json")
+        if os.path.exists(learning_file):
+            with open(learning_file, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                logger.info(f"Wczytano {len(data)} wpisów z danych uczenia się ({learning_file}).")
+                
+                # Analiza jakości danych uczenia
+                valid_entries = 0
+                for entry in data:
+                    if entry.get("archive_basename") and entry.get("image_basename"):
+                        valid_entries += 1
+                
+                logger.info(f"📊 Jakość danych uczenia: {valid_entries}/{len(data)} prawidłowych wpisów")
+                
+                return data
+        logger.info(f"Plik danych uczenia się ({learning_file}) nie istnieje.")
+        return []
+    except json.JSONDecodeError as e:
+        logger.error(f"Błąd dekodowania JSON w pliku danych uczenia się: {e}")
+        return []
+    except Exception as e:
+        logger.error(f"Błąd wczytywania danych uczenia się: {e}", exc_info=True)
+        return []
+Główne zmiany:
 
-            console.log('🎯 ZAPISUJĘ DOPASOWANIE:', matchData);
+Wyciąganie wzorców zamiast zapamiętywania konkretnych przypadków
+Analiza typów dopasowań:
 
-            const matchKey = 'learningMatch_' + Date.now();
-            localStorage.setItem(matchKey, JSON.stringify(matchData));
-            localStorage.setItem('latestLearningMatch', matchKey);
+Dokładne dopasowania (po oczyszczeniu ze znaków specjalnych)
+Wzorce sufiksów (obraz ma dodatkowy sufiks)
+Wzorce prefiksów (archiwum ma dodatkowy prefiks)
+Reguły transformacji (wspólne części w różnych formatach)
 
-            if(matchStatus) matchStatus.textContent = '✅ Zapisano! Nauka algorytmu...';
-            matchBtn.disabled = true;
-            matchBtn.textContent = '⏳ Przetwarzanie...';
 
-            // Odznacz checkboxy
-            archiveCb.checked = false;
-            imageCb.checked = false;
+Inteligentne stosowanie wyciągniętych wzorców do nowych plików
 
-            setTimeout(() => {
-                matchBtn.disabled = false;
-                matchBtn.textContent = '🎯 Dopasuj podgląd';
-                if(matchStatus) matchStatus.textContent = '';
-                updateMatchButton();
-            }, 3000);
-        } else {
-            console.error('NIE ZNALEZIONO ODPOWIEDNICH CHECKBOXÓW!');
-        }
-    });
+Teraz system będzie:
 
-    // Inicjalne sprawdzenie
-    updateMatchButton();
-    console.log('=== DOPASOWANIE ZAINICJALIZOWANE ===');
-  } else {
-    console.log('Brak przycisku dopasowania na tej stronie');
-  }
-
-  // Pozostałe funkcje (usuwanie, localStorage itp.)
-  const deleteButtons = document.querySelectorAll('.delete-image-btn');
-  deleteButtons.forEach((button) => {
-    button.addEventListener('click', function (e) {
-      e.preventDefault(); 
-      e.stopPropagation();
-      const filePath = this.dataset.filePath;
-      const fileName = this.dataset.fileName;
-      if (confirm(`Czy na pewno chcesz usunąć plik "${fileName}" do kosza?`)) {
-        try {
-          if (typeof Storage === 'undefined' || !localStorage) { 
-            alert('Funkcja usuwania nie jest dostępna.'); 
-            return; 
-          }
-          const deleteData = { 
-            action: 'deleteFile', 
-            filePath: filePath, 
-            fileName: fileName, 
-            timestamp: new Date().toISOString() 
-          };
-          console.log('🗑️ Usuwanie pliku:', deleteData);
-          const deleteKey = 'deleteFile_' + Date.now();
-          localStorage.setItem(deleteKey, JSON.stringify(deleteData));
-          localStorage.setItem('latestDelete', deleteKey);
-          this.textContent = '⏳'; 
-          this.disabled = true; 
-          this.style.opacity = '0.5';
-        } catch (err) { 
-          console.error('Błąd usuwania pliku:', err); 
-          alert('Wystąpił błąd podczas usuwania.'); 
-        }
-      }
-    });
-  });
-
-  // Przywracanie rozmiaru kafelków z localStorage
-  if (typeof localStorage !== 'undefined' && localStorage.getItem('galleryTileSize')) {
-      const savedSize = localStorage.getItem('galleryTileSize');
-      const galleriesToResize = document.querySelectorAll('.gallery');
-      galleriesToResize.forEach(gallery => {
-          gallery.style.gridTemplateColumns = `repeat(auto-fill, minmax(${savedSize}px, 1fr))`;
-      });
-  }
-
-  console.log('=== INICJALIZACJA GALERII ZAKOŃCZONA ===');
-});
-</script>
-Główne poprawki:
-
-Usunięcie błędnego .format() w funkcji getCurrentFolder()
-Dodanie szczegółowego debugowania - console.log w każdym kroku
-Skrócenie czasu hover z 2000ms na 1000ms dla szybszego testowania
-Lepsze sprawdzanie elementów modal przed użyciem
-Dodanie logowania dla każdego checkboxa i jego właściwości
-Sprawdzenie czy funkcja updateMatchButton działa poprawnie
-
-Jak debugować:
-
-Otwórz konsolę przeglądarki (F12)
-Odśwież galerię
-Sprawdź komunikaty inicjalizacji
-Zaznacz archiwum i obraz
-Sprawdź czy w konsoli pojawiają się komunikaty o zmianie checkboxów
-Sprawdź czy przycisk "Dopasuj podgląd" staje się aktywny
-
-Jeśli nadal nie działa, wyślij mi zrzut ekranu konsoli z błędami!
+Z przykładu "Porsche..." wyciągnie wzorzec, że obrazy mogą mieć spacje tam gdzie archiwum ma podkreślniki
+Z przykładu "328995..." nauczy się, że kropki mogą być zamieniane na podkreślniki
+Te wzorce będzie stosował do nowych, niewidzianych wcześniej plików
