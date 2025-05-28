@@ -106,20 +106,24 @@ def process_single_index_json(
     progress_callback=None,
 ):
     if progress_callback:
-        progress_callback(f"Generowanie galerii dla: {index_json_path}")
+        progress_callback(f"🔄 Generowanie galerii dla: {index_json_path}")
 
     try:
+        print(f"📂 Wczytywanie pliku index.json: {index_json_path}")
         with open(index_json_path, "r", encoding="utf-8") as f:
             data = json.load(f)
+        print(f"✅ Wczytano dane z {index_json_path}")
     except Exception as e:
+        print(f"❌ Błąd odczytu {index_json_path}: {e}")
         if progress_callback:
-            progress_callback(f"Błąd odczytu {index_json_path}: {e}")
+            progress_callback(f"❌ Błąd odczytu {index_json_path}: {e}")
         return None
 
     current_folder_abs_path = os.path.dirname(index_json_path)
     relative_path_from_scanned_root = os.path.relpath(
         current_folder_abs_path, scanned_root_path
     )
+    print(f"📁 Ścieżka względna: {relative_path_from_scanned_root}")
 
     current_gallery_html_dir = os.path.join(
         gallery_output_base_path,
@@ -129,18 +133,22 @@ def process_single_index_json(
             else ""
         ),
     )
+    print(f"📂 Tworzenie katalogu galerii: {current_gallery_html_dir}")
     os.makedirs(current_gallery_html_dir, exist_ok=True)
 
     output_html_file = os.path.join(current_gallery_html_dir, "index.html")
+    print(f"📄 Plik wyjściowy: {output_html_file}")
 
     # Użyj inteligentnego cachowania
     if os.path.exists(output_html_file) and not should_regenerate_gallery(
         index_json_path, output_html_file
     ):
+        print(f"ℹ️ Galeria {output_html_file} jest aktualna, pomijam.")
         if progress_callback:
-            progress_callback(f"Galeria {output_html_file} jest aktualna, pomijam.")
+            progress_callback(f"ℹ️ Galeria {output_html_file} jest aktualna, pomijam.")
         return output_html_file
 
+    print("🔄 Przygotowywanie danych do szablonu...")
     template = template_env.get_template("gallery_template.html")
 
     template_data = {
@@ -163,15 +171,36 @@ def process_single_index_json(
         relative_path_from_scanned_root, gallery_root_name
     )
 
+    print("📁 Przetwarzanie podfolderów...")
     # Subfolders - dodaj statystyki
     for entry in os.scandir(current_folder_abs_path):
         if entry.is_dir():
-            if os.path.exists(os.path.join(entry.path, "index.json")):
-                # Wczytaj statystyki z index.json podfolderu
-                try:
-                    with open(
-                        os.path.join(entry.path, "index.json"), "r", encoding="utf-8"
-                    ) as f:
+            print(f"📂 Sprawdzanie podfolderu: {entry.name}")
+            index_json_path = os.path.join(entry.path, "index.json")
+            try:
+                import threading
+                import time
+                result_holder = {"exists": None, "error": None}
+                def check_exists():
+                    try:
+                        print(f"⏳ Sprawdzam istnienie pliku: {index_json_path}")
+                        result_holder["exists"] = os.path.exists(index_json_path)
+                        print(f"✅ Wynik os.path.exists({index_json_path}): {result_holder['exists']}")
+                    except Exception as e:
+                        result_holder["error"] = e
+                        print(f"❌ Wyjątek przy sprawdzaniu istnienia {index_json_path}: {e}")
+                t = threading.Thread(target=check_exists)
+                t.start()
+                t.join(timeout=5)
+                if t.is_alive():
+                    print(f"⏰ Timeout przy sprawdzaniu istnienia {index_json_path}")
+                    t.join(0.1)
+                    raise TimeoutError(f"Timeout przy sprawdzaniu istnienia {index_json_path}")
+                if result_holder["error"] is not None:
+                    raise result_holder["error"]
+                if result_holder["exists"]:
+                    print(f"📄 Wczytywanie index.json z podfolderu: {entry.name}")
+                    with open(index_json_path, "r", encoding="utf-8") as f:
                         subfolder_data = json.load(f)
                         folder_info = subfolder_data.get("folder_info", {})
                         template_data["subfolders"].append(
@@ -185,62 +214,124 @@ def process_single_index_json(
                                 "subdir_count": folder_info.get("subdir_count", 0),
                             }
                         )
-                except:
-                    template_data["subfolders"].append(
-                        {
-                            "name": entry.name,
-                            "link": f"{entry.name}/index.html",
-                            "total_size_readable": "0 B",
-                            "file_count": 0,
-                            "subdir_count": 0,
-                        }
-                    )
+                    print(f"✅ Dodano podfolder: {entry.name}")
+                else:
+                    print(f"⚠️ Brak index.json w podfolderze: {entry.name}")
+            except Exception as e:
+                print(f"❌ Błąd przetwarzania podfolderu {entry.name}: {e}")
+                template_data["subfolders"].append(
+                    {
+                        "name": entry.name,
+                        "link": f"{entry.name}/index.html",
+                        "total_size_readable": "0 B",
+                        "file_count": 0,
+                        "subdir_count": 0,
+                    }
+                )
 
+    print("🖼️ Przetwarzanie plików z podglądami...")
     # Files with previews - używaj bezpośrednich ścieżek
     for item in data.get("files_with_previews", []):
-        copied_item = item.copy()
-        copied_item["archive_link"] = f"file:///{item['path_absolute']}"
-        if item.get("preview_path_absolute"):
-            copied_item["preview_relative_path"] = (
-                f"file:///{item['preview_path_absolute']}"
-            )
+        try:
+            print(f"📄 Przetwarzanie pliku z podglądem: {item.get('name', '')}")
+            copied_item = item.copy()
+            copied_item["archive_link"] = f"file:///{item['path_absolute']}"
+            if item.get("preview_path_absolute"):
+                copied_item["preview_relative_path"] = (
+                    f"file:///{item['preview_path_absolute']}"
+                )
 
-        # DODAJ KOLOR ARCHIWUM NA PODSTAWIE ROZSZERZENIA
-        file_name = item.get("name", "")
-        file_ext = os.path.splitext(file_name)[1].lower()
-        copied_item["archive_color"] = config_manager.get_archive_color(file_ext)
+            file_name = item.get("name", "")
+            file_ext = os.path.splitext(file_name)[1].lower()
+            copied_item["archive_color"] = config_manager.get_archive_color(file_ext)
 
-        template_data["files_with_previews"].append(copied_item)
+            template_data["files_with_previews"].append(copied_item)
+            print(f"✅ Dodano plik z podglądem: {file_name}")
+        except Exception as e:
+            print(f"❌ Błąd przetwarzania pliku z podglądem {item.get('name', '')}: {e}")
 
+    print("📄 Przetwarzanie plików bez podglądów...")
     # Files without previews
     for item in data.get("files_without_previews", []):
-        copied_item = item.copy()
-        copied_item["archive_link"] = f"file:///{item['path_absolute']}"
+        try:
+            print(f"📄 Przetwarzanie pliku bez podglądu: {item.get('name', '')}")
+            copied_item = item.copy()
+            copied_item["archive_link"] = f"file:///{item['path_absolute']}"
 
-        # DODAJ KOLOR ARCHIWUM
-        file_name = item.get("name", "")
-        file_ext = os.path.splitext(file_name)[1].lower()
-        copied_item["archive_color"] = config_manager.get_archive_color(file_ext)
+            file_name = item.get("name", "")
+            file_ext = os.path.splitext(file_name)[1].lower()
+            copied_item["archive_color"] = config_manager.get_archive_color(file_ext)
 
-        template_data["files_without_previews"].append(copied_item)
+            template_data["files_without_previews"].append(copied_item)
+            print(f"✅ Dodano plik bez podglądu: {file_name}")
+        except Exception as e:
+            print(f"❌ Błąd przetwarzania pliku bez podglądu {item.get('name', '')}: {e}")
 
+    print("🖼️ Przetwarzanie pozostałych obrazów...")
     # Other images - używaj bezpośrednich ścieżek
     for item in data.get("other_images", []):
-        copied_item = item.copy()
-        copied_item["file_link"] = f"file:///{item['path_absolute']}"
-        if item.get("path_absolute"):
-            copied_item["image_relative_path"] = f"file:///{item['path_absolute']}"
-        template_data["other_images"].append(copied_item)
+        try:
+            print(f"🖼️ Przetwarzanie obrazu: {item.get('name', '')}")
+            copied_item = item.copy()
+            copied_item["file_link"] = f"file:///{item['path_absolute']}"
+            if item.get("path_absolute"):
+                copied_item["image_relative_path"] = f"file:///{item['path_absolute']}"
+            template_data["other_images"].append(copied_item)
+            print(f"✅ Dodano obraz: {item.get('name', '')}")
+        except Exception as e:
+            print(f"❌ Błąd przetwarzania obrazu {item.get('name', '')}: {e}")
 
+    print("📝 Generowanie HTML...")
     try:
+        print(f"📊 Dane do szablonu: {len(template_data['files_with_previews'])} plików z podglądami, {len(template_data['files_without_previews'])} bez podglądów, {len(template_data['other_images'])} innych obrazów")
+        print("🔄 Renderowanie szablonu...")
         html_content = template.render(template_data)
-        with open(output_html_file, "w", encoding="utf-8") as f:
-            f.write(html_content)
+        print(f"✅ Szablon wyrenderowany, rozmiar: {len(html_content)} bajtów")
+        
+        print(f"💾 Zapisuję plik HTML: {output_html_file}")
+        try:
+            # Sprawdź czy katalog istnieje
+            output_dir = os.path.dirname(output_html_file)
+            if not os.path.exists(output_dir):
+                print(f"📂 Tworzę katalog: {output_dir}")
+                os.makedirs(output_dir, exist_ok=True)
+            
+            # Sprawdź uprawnienia do zapisu
+            if os.path.exists(output_html_file):
+                print(f"ℹ️ Plik już istnieje, sprawdzam uprawnienia...")
+                if not os.access(output_dir, os.W_OK):
+                    print(f"❌ Brak uprawnień do zapisu w katalogu: {output_dir}")
+                    raise PermissionError(f"Brak uprawnień do zapisu w {output_dir}")
+            
+            # Zapisz plik
+            with open(output_html_file, "w", encoding="utf-8") as f:
+                f.write(html_content)
+            print(f"✅ Zapisano galerię: {output_html_file}")
+            
+            # Sprawdź czy plik został zapisany
+            if os.path.exists(output_html_file):
+                file_size = os.path.getsize(output_html_file)
+                print(f"✅ Plik zapisany, rozmiar: {file_size} bajtów")
+            else:
+                print(f"❌ Plik nie został zapisany mimo braku błędów!")
+                
+        except PermissionError as e:
+            print(f"❌ Błąd uprawnień przy zapisie {output_html_file}: {e}")
+            raise
+        except IOError as e:
+            print(f"❌ Błąd I/O przy zapisie {output_html_file}: {e}")
+            raise
+        except Exception as e:
+            print(f"❌ Nieoczekiwany błąd przy zapisie {output_html_file}: {e}")
+            raise
+            
         if progress_callback:
-            progress_callback(f"Zapisano galerię: {output_html_file}")
+            progress_callback(f"✅ Zapisano galerię: {output_html_file}")
     except Exception as e:
+        print(f"❌ Błąd generowania HTML dla {index_json_path}: {e}")
+        print(f"📊 Stan template_data: {template_data.keys()}")
         if progress_callback:
-            progress_callback(f"Błąd generowania HTML dla {index_json_path}: {e}")
+            progress_callback(f"❌ Błąd generowania HTML dla {index_json_path}: {e}")
         return None
 
     return output_html_file
@@ -252,62 +343,74 @@ def generate_full_gallery(scanned_root_path, gallery_cache_root_dir="."):
     scanned_root_path: The original directory that was scanned (e.g. W:/3Dsky/ARCHITECTURE)
     gallery_cache_root_dir: The base directory where all galleries are stored (e.g. _gallery_cache)
     """
+    print(f"🚀 Rozpoczynam generowanie galerii dla: {scanned_root_path}")
+    
     if not os.path.isdir(scanned_root_path):
-        print(f"Error: Scanned root path {scanned_root_path} is not a directory.")
+        print(f"❌ Błąd: Ścieżka {scanned_root_path} nie jest katalogiem.")
         return None
 
     sanitized_folder_name = sanitize_path_for_foldername(scanned_root_path)
     gallery_output_base_path = os.path.join(
         gallery_cache_root_dir, sanitized_folder_name
     )
+    print(f"📂 Katalog wyjściowy galerii: {gallery_output_base_path}")
     os.makedirs(gallery_output_base_path, exist_ok=True)
 
-    # Copy CSS file to the root of this specific gallery's output
-    # Assuming templates/gallery_styles.css exists relative to this script
-    # For robustness, let's make template_dir an argument or discover it
     script_dir = os.path.dirname(os.path.abspath(__file__))
     template_dir = os.path.join(script_dir, "templates")
+    print(f"📂 Katalog szablonów: {template_dir}")
 
     if not os.path.isdir(template_dir):
-        print(f"Error: Template directory not found at {template_dir}")
-        # Fallback if running from a different context (e.g. bundled app)
-        # This might need adjustment based on how the app is packaged/run
+        print(f"⚠️ Nie znaleziono katalogu szablonów w {template_dir}")
         alt_template_dir = "templates"
         if os.path.isdir(alt_template_dir):
             template_dir = alt_template_dir
+            print(f"✅ Użyto alternatywnego katalogu szablonów: {template_dir}")
         else:
-            print("Cannot locate templates directory.")
+            print("❌ Nie można znaleźć katalogu szablonów.")
             return None
 
     env = Environment(loader=FileSystemLoader(template_dir))
+    print("✅ Zainicjalizowano środowisko szablonów")
 
     css_src_path = os.path.join(template_dir, "gallery_styles.css")
     css_dest_path = os.path.join(gallery_output_base_path, "gallery_styles.css")
     if os.path.exists(css_src_path):
         try:
             shutil.copy2(css_src_path, css_dest_path)
+            print(f"✅ Skopiowano plik CSS: {css_dest_path}")
         except Exception as e:
-            print(f"Could not copy gallery_styles.css: {e}")
+            print(f"❌ Nie można skopiować gallery_styles.css: {e}")
     else:
-        print(f"Warning: gallery_styles.css not found at {css_src_path}")
+        print(f"⚠️ Nie znaleziono pliku gallery_styles.css w {css_src_path}")
 
     root_gallery_html_path = None
+    processed_count = 0
+    error_count = 0
 
+    print("🔄 Rozpoczynam przetwarzanie plików index.json...")
     for dirpath, _, filenames in os.walk(scanned_root_path):
         if "index.json" in filenames:
             index_json_file = os.path.join(dirpath, "index.json")
-            generated_html = process_single_index_json(
-                index_json_file, scanned_root_path, gallery_output_base_path, env, print
-            )
-            if (
-                dirpath == scanned_root_path and generated_html
-            ):  # This is the root index.html for the gallery
-                root_gallery_html_path = generated_html
+            print(f"📄 Przetwarzanie: {index_json_file}")
+            try:
+                generated_html = process_single_index_json(
+                    index_json_file, scanned_root_path, gallery_output_base_path, env, print
+                )
+                if generated_html:
+                    processed_count += 1
+                    if dirpath == scanned_root_path:
+                        root_gallery_html_path = generated_html
+                        print(f"✅ Znaleziono główny plik HTML: {generated_html}")
+            except Exception as e:
+                error_count += 1
+                print(f"❌ Błąd przetwarzania {index_json_file}: {e}")
 
+    print(f"📊 Podsumowanie: Przetworzono {processed_count} plików, {error_count} błędów")
     if root_gallery_html_path:
-        print(f"Gallery generation complete. Root HTML at: {root_gallery_html_path}")
+        print(f"✅ Generowanie galerii zakończone. Główny plik HTML: {root_gallery_html_path}")
     else:
-        print("Gallery generation failed or no index.json found at root.")
+        print("❌ Generowanie galerii nie powiodło się lub nie znaleziono index.json w głównym katalogu.")
     return root_gallery_html_path
 
 

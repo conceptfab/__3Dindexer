@@ -159,13 +159,19 @@ def find_matching_preview_for_file(
     Szuka pasującego pliku podglądu dla dowolnego pliku.
     NOWA FUNKCJONALNOŚĆ: Najpierw sprawdza nauczone dopasowania!
     """
+    logger.debug(f"🔍 Szukam podglądu dla pliku: {base_filename}")
+    logger.debug(f"📝 Dostępne pliki obrazów: {[os.path.basename(f) for f in image_files_in_folder]}")
+
     if not base_filename:
+        logger.debug("❌ Brak nazwy bazowej pliku")
         return None
 
     # PIERWSZEŃSTWO: Sprawdź nauczone dopasowania
     if learning_data:
+        logger.debug(f"📚 Sprawdzam nauczone dopasowania dla: {base_filename}")
         learned_image = find_learned_match(base_filename, learning_data)
         if learned_image:
+            logger.debug(f"🎓 Znaleziono nauczone dopasowanie: {learned_image}")
             # Szukaj dokładnego dopasowania nazwy z nauki
             for img_path in image_files_in_folder:
                 img_name = os.path.basename(img_path)
@@ -179,6 +185,7 @@ def find_matching_preview_for_file(
                         return img_path
 
     # FALLBACK: Użyj standardowego algorytmu jeśli nie ma nauki
+    logger.debug(f"🔍 Używam standardowego algorytmu dopasowania dla: {base_filename}")
     base_name = base_filename.lower().strip()
 
     # Twórz różne warianty nazwy bazowej
@@ -207,6 +214,7 @@ def find_matching_preview_for_file(
         cleaned_variants.add(normalized.replace(" ", "-"))
 
     name_variants.update(cleaned_variants)
+    logger.debug(f"📝 Wygenerowane warianty nazwy: {sorted(name_variants)}")
 
     # Dodaj warianty z typowymi sufiksami
     extended_variants = set(name_variants)
@@ -217,7 +225,7 @@ def find_matching_preview_for_file(
                     extended_variants.add(variant + separator + suffix)
 
     logger.debug(
-        f"Szukam podglądu dla '{base_filename}' z {len(extended_variants)} wariantami"
+        f"🔍 Szukam podglądu dla '{base_filename}' z {len(extended_variants)} wariantami"
     )
 
     for img_path in image_files_in_folder:
@@ -226,9 +234,11 @@ def find_matching_preview_for_file(
 
         # Sprawdź czy to obsługiwane rozszerzenie obrazu
         if img_ext.lower() not in IMAGE_EXTENSIONS:
+            logger.debug(f"⚠️ Pomijam nieobsługiwany format: {img_name}")
             continue
 
         img_base_clean = img_base.lower().strip()
+        logger.debug(f"🖼️ Sprawdzam obraz: {img_name} (bazowa nazwa: {img_base_clean})")
 
         # Dokładne dopasowanie
         if img_base_clean in extended_variants:
@@ -368,39 +378,36 @@ def process_folder(folder_path, progress_callback=None):
     Przetwarza pojedynczy folder: zbiera informacje i generuje index.json.
     NOWA FUNKCJONALNOŚĆ: Używa danych uczenia się.
     """
-    logger.info(f"Rozpoczęcie przetwarzania folderu: {folder_path}")
+    logger.info(f"🔄 Rozpoczynam przetwarzanie folderu: {folder_path}")
 
     if progress_callback:
-        progress_callback(f"Przetwarzanie folderu: {folder_path}")
+        progress_callback(f"🔄 Przetwarzanie folderu: {folder_path}")
 
     # WCZYTAJ DANE UCZENIA SIĘ
     learning_data = load_learning_data()
     if learning_data:
-        logger.info(f"Wczytano {len(learning_data)} nauczonych dopasowań")
+        logger.info(f"📚 Wczytano {len(learning_data)} nauczonych dopasowań")
         if progress_callback:
-            progress_callback(f"Zastosowano {len(learning_data)} nauczonych dopasowań")
-
-    # DODAJ DEBUG MATCHING (opcjonalnie, tylko dla problemów)
-    # log_file_matching_debug(folder_path, progress_callback)
+            progress_callback(f"📚 Zastosowano {len(learning_data)} nauczonych dopasowań")
 
     # ZABEZPIECZENIE PRZED ZAWIESZENIEM
     try:
         # Sprawdź czy folder jest dostępny w rozsądnym czasie
         if not os.path.exists(folder_path):
-            msg = f"Folder nie istnieje: {folder_path}"
+            msg = f"❌ Folder nie istnieje: {folder_path}"
             logger.error(msg)
             if progress_callback:
                 progress_callback(msg)
             return
 
         if not os.access(folder_path, os.R_OK):
-            msg = f"Brak dostępu do folderu: {folder_path}"
+            msg = f"❌ Brak dostępu do folderu: {folder_path}"
             logger.error(msg)
             if progress_callback:
                 progress_callback(msg)
             return
     except Exception as e:
-        msg = f"Błąd dostępu do folderu {folder_path}: {e}"
+        msg = f"❌ Błąd dostępu do folderu {folder_path}: {e}"
         logger.error(msg)
         if progress_callback:
             progress_callback(msg)
@@ -417,7 +424,7 @@ def process_folder(folder_path, progress_callback=None):
     subdirectories = []
 
     try:
-        # TIMEOUT dla skanowania foldera - maksymalnie 30 sekund na folder
+        # TIMEOUT dla skanowania foldera - zmniejszony do 15 sekund
         import threading
         import time
 
@@ -425,47 +432,87 @@ def process_folder(folder_path, progress_callback=None):
             pass
 
         def timeout_handler():
-            raise TimeoutError(f"Timeout podczas skanowania {folder_path}")
+            logger.error(f"⏰ Timeout podczas skanowania {folder_path}")
+            logger.error(f"📊 Stan przed timeoutem: {len(all_items_in_dir)} elementów")
+            logger.error(f"📁 Ostatnio przetworzone elementy: {all_items_in_dir[-5:] if all_items_in_dir else 'brak'}")
+            raise TimeoutError(f"⏰ Timeout podczas skanowania {folder_path}")
 
-        timer = threading.Timer(30.0, timeout_handler)  # 30 sekund timeout
+        timer = threading.Timer(15.0, timeout_handler)  # 15 sekund timeout
         timer.start()
 
         try:
+            logger.info(f"📂 Rozpoczynam skanowanie zawartości: {folder_path}")
+            start_time = time.time()
+            last_progress_time = start_time
+            items_since_last_progress = 0
+
             with os.scandir(folder_path) as entries:
                 for entry in entries:
                     try:
+                        current_time = time.time()
+                        items_since_last_progress += 1
+
+                        # Loguj postęp co 5 sekund lub co 50 elementów
+                        if current_time - last_progress_time > 5 or items_since_last_progress >= 50:
+                            logger.debug(f"⏱️ Przetworzono {len(all_items_in_dir)} elementów w {current_time - start_time:.1f}s")
+                            last_progress_time = current_time
+                            items_since_last_progress = 0
+
+                        # Sprawdź czy nie przekroczyliśmy czasu
+                        if current_time - start_time > 14:  # Zostaw 1 sekundę na obsługę timeoutu
+                            logger.warning(f"⚠️ Zbliżamy się do limitu czasu w {folder_path}")
+                            logger.warning(f"📊 Przetworzono {len(all_items_in_dir)} elementów")
+                            raise TimeoutError(f"⏰ Przekroczono limit czasu w {folder_path}")
+
                         all_items_in_dir.append(entry.name)
                         if entry.is_dir():
                             subdirectories.append(entry.path)
-                        if progress_callback and len(all_items_in_dir) % 100 == 0:
+                            logger.debug(f"📁 Znaleziono podfolder: {entry.path}")
+                        else:
+                            logger.debug(f"📄 Znaleziono plik: {entry.name}")
+
+                        if progress_callback and len(all_items_in_dir) % 50 == 0:
                             progress_callback(
-                                f"Przetworzono {len(all_items_in_dir)} plików w {folder_path}"
+                                f"📊 Przetworzono {len(all_items_in_dir)} elementów w {folder_path}"
                             )
                     except (OSError, PermissionError) as e:
+                        logger.error(f"❌ Błąd dostępu do {entry.name}: {e}")
                         if progress_callback:
                             progress_callback(
-                                f"Błąd dostępu do pliku {entry.name}: {e}"
+                                f"❌ Błąd dostępu do {entry.name}: {e}"
                             )
                         continue
         finally:
             timer.cancel()  # Wyłącz timeout
+            elapsed_time = time.time() - start_time
+            logger.debug(f"⏱️ Skanowanie {folder_path} zajęło {elapsed_time:.2f} sekund")
+            logger.debug(f"📊 Łącznie przetworzono {len(all_items_in_dir)} elementów")
 
     except TimeoutError as e:
+        logger.error(f"⏰ {e}")
         if progress_callback:
-            progress_callback(f"TIMEOUT: {e}")
+            progress_callback(f"⏰ {e}")
         return
     except (OSError, PermissionError) as e:
+        logger.error(f"❌ Błąd dostępu do folderu {folder_path}: {e}")
         if progress_callback:
-            progress_callback(f"Błąd dostępu do folderu {folder_path}: {e}")
+            progress_callback(f"❌ Błąd dostępu do folderu {folder_path}: {e}")
         return
 
+    logger.info(f"📊 Znaleziono {len(all_items_in_dir)} elementów w {folder_path}")
+
     # Podziel pliki na obrazy i inne pliki
+    logger.debug(f"🔍 Rozpoczynam podział plików w {folder_path}")
+    logger.debug(f"📝 Lista wszystkich elementów: {all_items_in_dir}")
+
     image_filenames = [
         f
         for f in all_items_in_dir
         if os.path.isfile(os.path.join(folder_path, f))
         and any(f.lower().endswith(ext) for ext in IMAGE_EXTENSIONS)
     ]
+    logger.debug(f"🖼️ Znalezione pliki obrazów: {image_filenames}")
+
     other_filenames = [
         f
         for f in all_items_in_dir
@@ -473,19 +520,29 @@ def process_folder(folder_path, progress_callback=None):
         and not any(f.lower().endswith(ext) for ext in IMAGE_EXTENSIONS)
         and f.lower() != "index.json"
     ]
+    logger.debug(f"📄 Znalezione inne pliki: {other_filenames}")
 
+    logger.info(f"🖼️ Znaleziono {len(image_filenames)} obrazów i {len(other_filenames)} innych plików")
+
+    logger.debug(f"🔍 Tworzę pełne ścieżki do plików obrazów")
     full_path_image_files = [
         os.path.join(folder_path, img_name) for img_name in image_filenames
     ]
+    logger.debug(f"📝 Pełne ścieżki do obrazów: {full_path_image_files}")
     found_previews_paths = set()
 
+    logger.debug(f"🔄 Rozpoczynam przetwarzanie plików")
     for file_name in other_filenames:
+        logger.debug(f"📄 Przetwarzam plik: {file_name}")
         file_path = os.path.join(folder_path, file_name)
         file_basename, _ = os.path.splitext(file_name)
+        logger.debug(f"📝 Nazwa bazowa pliku: {file_basename}")
 
         try:
             file_size_bytes = os.path.getsize(file_path)
-        except OSError:
+            logger.debug(f"📄 Przetwarzanie pliku: {file_name} ({get_file_size_readable(file_size_bytes)})")
+        except OSError as e:
+            logger.error(f"❌ Błąd odczytu rozmiaru {file_name}: {e}")
             file_size_bytes = 0
 
         file_info = {
@@ -496,6 +553,7 @@ def process_folder(folder_path, progress_callback=None):
         }
 
         # ULEPSZONE dopasowywanie z NAUKĄ
+        logger.debug(f"🔍 Szukam podglądu dla: {file_name}")
         preview_file_path = find_matching_preview_for_file(
             file_basename, full_path_image_files, learning_data
         )
@@ -514,13 +572,17 @@ def process_folder(folder_path, progress_callback=None):
             index_data["files_without_previews"].append(file_info)
             logger.debug(f"❌ Brak podglądu dla: '{file_name}'")
 
+    logger.debug(f"🔄 Rozpoczynam przetwarzanie niesparowanych obrazów")
     # Dodaj obrazy, które nie zostały sparowane jako podglądy
     for img_name in image_filenames:
+        logger.debug(f"🖼️ Sprawdzam obraz: {img_name}")
         img_path_full = os.path.join(folder_path, img_name)
         if img_path_full not in found_previews_paths:
             try:
                 img_size_bytes = os.path.getsize(img_path_full)
-            except OSError:
+                logger.debug(f"🖼️ Dodaję niesparowany obraz: {img_name} ({get_file_size_readable(img_size_bytes)})")
+            except OSError as e:
+                logger.error(f"❌ Błąd odczytu rozmiaru obrazu {img_name}: {e}")
                 img_size_bytes = 0
 
             index_data["other_images"].append(
@@ -540,18 +602,18 @@ def process_folder(folder_path, progress_callback=None):
     try:
         with open(index_json_path, "w", encoding="utf-8") as f:
             json.dump(index_data, f, indent=4, ensure_ascii=False)
-        logger.info(f"Zapisano plik index.json: {index_json_path}")
+        logger.info(f"💾 Zapisano plik index.json: {index_json_path}")
         if progress_callback:
-            progress_callback(f"Zapisano: {index_json_path}")
+            progress_callback(f"💾 Zapisano: {index_json_path}")
     except IOError as e:
-        msg = f"Błąd zapisu {index_json_path}: {e}"
+        msg = f"❌ Błąd zapisu {index_json_path}: {e}"
         logger.error(msg)
         if progress_callback:
             progress_callback(msg)
 
     # Przetwarzaj podfoldery
     for subdir in subdirectories:
-        logger.info(f"Przetwarzanie podfolderu: {subdir}")
+        logger.info(f"📁 Przetwarzanie podfolderu: {subdir}")
         process_folder(subdir, progress_callback)
 
 
@@ -579,18 +641,48 @@ def process_folder_with_retry(folder_path, max_retries=3, progress_callback=None
 
 def start_scanning(root_folder_path, progress_callback=None):
     """Rozpoczyna skanowanie od podanego folderu głównego."""
-    logger.info(f"Rozpoczęcie skanowania od folderu: {root_folder_path}")
+    logger.info(f"🚀 Rozpoczynam skanowanie od folderu: {root_folder_path}")
 
     if not os.path.isdir(root_folder_path):
-        msg = f"Błąd: Ścieżka {root_folder_path} nie jest folderem lub nie istnieje."
+        msg = f"❌ Błąd: Ścieżka {root_folder_path} nie jest folderem lub nie istnieje."
         logger.error(msg)
         if progress_callback:
             progress_callback(msg)
         return
-    process_folder_with_retry(root_folder_path, progress_callback=progress_callback)
-    logger.info("Skanowanie zakończone pomyślnie")
-    if progress_callback:
-        progress_callback("Skanowanie zakończone.")
+
+    try:
+        # Sprawdź uprawnienia do folderu
+        if not os.access(root_folder_path, os.R_OK):
+            msg = f"❌ Brak uprawnień do odczytu folderu: {root_folder_path}"
+            logger.error(msg)
+            if progress_callback:
+                progress_callback(msg)
+            return
+
+        # Sprawdź czy folder nie jest pusty
+        if not os.listdir(root_folder_path):
+            msg = f"⚠️ Folder jest pusty: {root_folder_path}"
+            logger.warning(msg)
+            if progress_callback:
+                progress_callback(msg)
+
+        # Dodaj informację o rozpoczęciu skanowania
+        if progress_callback:
+            progress_callback(f"🚀 Rozpoczynam skanowanie: {root_folder_path}")
+
+        # Uruchom skanowanie z mechanizmem retry
+        process_folder_with_retry(root_folder_path, progress_callback=progress_callback)
+
+        logger.info("✅ Skanowanie zakończone pomyślnie")
+        if progress_callback:
+            progress_callback("✅ Skanowanie zakończone.")
+
+    except Exception as e:
+        msg = f"❌ Krytyczny błąd podczas skanowania: {e}"
+        logger.error(msg)
+        if progress_callback:
+            progress_callback(msg)
+        raise
 
 
 def quick_rescan_folder(folder_path, progress_callback=None):
