@@ -1,93 +1,8 @@
 Zmiana w pliku scanner_logic.py
-Przywróć ORYGINALNĄ funkcję find_matching_preview_for_file i dodaj tylko inteligentną analizę wzorców:
-pythondef extract_learning_patterns(learning_data):
-    """Analizuje dane uczenia i wyciąga proste wzorce"""
-    patterns = {
-        'separator_changes': [],  # _ na . itp.
-        'suffix_additions': [],   # dodatkowe części
-        'exact_mappings': {}      # dokładne mapowania
-    }
-    
-    for match_entry in learning_data:
-        archive_base = match_entry.get("archive_basename", "").lower().strip()
-        image_base = match_entry.get("image_basename", "").lower().strip()
-        
-        if not archive_base or not image_base:
-            continue
-            
-        # Dokładne mapowanie
-        patterns['exact_mappings'][archive_base] = image_base
-        
-        # Analiza separatorów: _ vs .
-        if '_' in archive_base and '.' in image_base:
-            archive_clean = archive_base.replace('_', '')
-            image_clean = image_base.replace('.', '')
-            if archive_clean == image_clean:
-                patterns['separator_changes'].append({
-                    'from': '_',
-                    'to': '.',
-                    'example_archive': archive_base,
-                    'example_image': image_base
-                })
-        
-        # Analiza dodatkowych części (space vs _)
-        if ' ' in image_base and '_' in archive_base:
-            archive_normalized = archive_base.replace('_', ' ')
-            if archive_normalized.strip() == image_base.strip():
-                patterns['suffix_additions'].append({
-                    'pattern': 'underscore_to_space',
-                    'example_archive': archive_base,
-                    'example_image': image_base
-                })
-    
-    logger.info(f"📚 Wyciągnięto wzorce: {len(patterns['exact_mappings'])} dokładnych, {len(patterns['separator_changes'])} separatorów, {len(patterns['suffix_additions'])} przestrzeni")
-    return patterns
-
-def apply_learned_patterns(base_filename, image_files_in_folder, patterns):
-    """Stosuje TYLKO proste wzorce z uczenia"""
-    base_lower = base_filename.lower().strip()
-    
-    # 1. Dokładne mapowanie
-    if base_lower in patterns['exact_mappings']:
-        target_image_base = patterns['exact_mappings'][base_lower]
-        for img_path in image_files_in_folder:
-            img_name = os.path.basename(img_path)
-            img_base, img_ext = os.path.splitext(img_name)
-            if img_ext.lower() in IMAGE_EXTENSIONS:
-                if img_base.lower().strip() == target_image_base:
-                    logger.info(f"🎓 DOKŁADNE MAPOWANIE: '{base_filename}' ↔ '{img_name}'")
-                    return img_path
-    
-    # 2. Wzorce separatorów (np. _ na .)
-    for pattern in patterns['separator_changes']:
-        if pattern['from'] == '_' and pattern['to'] == '.':
-            # Zamień _ na . w nazwie archiwum
-            modified_base = base_lower.replace('_', '.')
-            for img_path in image_files_in_folder:
-                img_name = os.path.basename(img_path)
-                img_base, img_ext = os.path.splitext(img_name)
-                if img_ext.lower() in IMAGE_EXTENSIONS:
-                    if img_base.lower().strip() == modified_base:
-                        logger.info(f"🎓 WZORZEC SEPARATORA: '{base_filename}' ↔ '{img_name}' (_ na .)")
-                        return img_path
-    
-    # 3. Wzorce przestrzeni (_ na spacja)
-    for pattern in patterns['suffix_additions']:
-        if pattern['pattern'] == 'underscore_to_space':
-            modified_base = base_lower.replace('_', ' ').strip()
-            for img_path in image_files_in_folder:
-                img_name = os.path.basename(img_path)
-                img_base, img_ext = os.path.splitext(img_name)
-                if img_ext.lower() in IMAGE_EXTENSIONS:
-                    if img_base.lower().strip() == modified_base:
-                        logger.info(f"🎓 WZORZEC PRZESTRZENI: '{base_filename}' ↔ '{img_name}' (_ na spacja)")
-                        return img_path
-    
-    return None
-
-def find_matching_preview_for_file(base_filename, image_files_in_folder, learning_data=None):
+W funkcji find_matching_preview_for_file, zastąp całą sekcję uczenia tym kodem:
+pythondef find_matching_preview_for_file(base_filename, image_files_in_folder, learning_data=None):
     """
-    PRZYWRÓCONA oryginalna funkcja + inteligentne wzorce
+    Przywrócona oryginalna funkcja + RZECZYWISTE wzorce (nie mapowania!)
     """
     logger.debug(f"🔍 Szukam podglądu dla: '{base_filename}'")
 
@@ -95,10 +10,9 @@ def find_matching_preview_for_file(base_filename, image_files_in_folder, learnin
         logger.warning("❌ Przekazano pustą nazwę")
         return None
 
-    # 1. NAJPIERW: Zastosuj wzorce z uczenia
+    # 1. NAJPIERW: Zastosuj WZORCE z uczenia (nie mapowania!)
     if learning_data:
-        patterns = extract_learning_patterns(learning_data)
-        learned_match = apply_learned_patterns(base_filename, image_files_in_folder, patterns)
+        learned_match = apply_smart_patterns(base_filename, image_files_in_folder, learning_data)
         if learned_match:
             return learned_match
 
@@ -151,22 +65,145 @@ def find_matching_preview_for_file(base_filename, image_files_in_folder, learnin
 
     logger.debug(f"❌ Nie znaleziono podglądu dla: '{base_filename}'")
     return None
+
+def apply_smart_patterns(base_filename, image_files_in_folder, learning_data):
+    """
+    RZECZYWISTE wyciąganie wzorców - nie mapowania!
+    """
+    base_lower = base_filename.lower().strip()
+    
+    # Analizuj wszystkie przykłady uczenia, aby znaleźć WZORCE
+    separator_patterns = analyze_separator_patterns(learning_data)
+    space_patterns = analyze_space_patterns(learning_data)
+    suffix_patterns = analyze_suffix_patterns(learning_data)
+    
+    logger.debug(f"📚 Znalezione wzorce - separatory: {len(separator_patterns)}, spacje: {len(space_patterns)}, sufiksy: {len(suffix_patterns)}")
+    
+    # Zastosuj wzorce separatorów
+    for pattern in separator_patterns:
+        if pattern['confidence'] >= 0.5:  # Tylko pewne wzorce
+            modified_name = apply_separator_pattern(base_lower, pattern)
+            if modified_name != base_lower:
+                match = find_image_by_basename(modified_name, image_files_in_folder)
+                if match:
+                    logger.info(f"🎓 WZORZEC SEPARATORA ({pattern['from']}→{pattern['to']}): '{base_filename}' ↔ '{os.path.basename(match)}'")
+                    return match
+    
+    # Zastosuj wzorce spacji
+    for pattern in space_patterns:
+        if pattern['confidence'] >= 0.5:
+            modified_name = apply_space_pattern(base_lower, pattern)
+            if modified_name != base_lower:
+                match = find_image_by_basename(modified_name, image_files_in_folder)
+                if match:
+                    logger.info(f"🎓 WZORZEC SPACJI: '{base_filename}' ↔ '{os.path.basename(match)}'")
+                    return match
+    
+    return None
+
+def analyze_separator_patterns(learning_data):
+    """Analizuje wzorce separatorów z przykładów"""
+    patterns = {}
+    
+    for entry in learning_data:
+        archive_base = entry.get("archive_basename", "").lower().strip()
+        image_base = entry.get("image_basename", "").lower().strip()
+        
+        if not archive_base or not image_base:
+            continue
+            
+        # Sprawdź czy to wzorzec _ → .
+        if '_' in archive_base and '.' in image_base:
+            archive_clean = archive_base.replace('_', '')
+            image_clean = image_base.replace('.', '')
+            if archive_clean == image_clean:
+                key = "_to_dot"
+                if key not in patterns:
+                    patterns[key] = {'from': '_', 'to': '.', 'count': 0, 'examples': []}
+                patterns[key]['count'] += 1
+                patterns[key]['examples'].append((archive_base, image_base))
+        
+        # Sprawdź inne wzorce separatorów...
+        # Możesz dodać więcej wzorców tutaj
+    
+    # Oblicz confidence dla każdego wzorca
+    total_examples = len(learning_data)
+    result = []
+    for pattern_data in patterns.values():
+        confidence = pattern_data['count'] / max(total_examples, 1)
+        result.append({
+            'from': pattern_data['from'],
+            'to': pattern_data['to'],
+            'confidence': confidence,
+            'count': pattern_data['count']
+        })
+    
+    return result
+
+def analyze_space_patterns(learning_data):
+    """Analizuje wzorce spacji"""
+    patterns = {}
+    
+    for entry in learning_data:
+        archive_base = entry.get("archive_basename", "").lower().strip()
+        image_base = entry.get("image_basename", "").lower().strip()
+        
+        if not archive_base or not image_base:
+            continue
+            
+        # Sprawdź wzorzec _ → spacja
+        if '_' in archive_base and ' ' in image_base:
+            archive_as_spaces = archive_base.replace('_', ' ')
+            if archive_as_spaces == image_base:
+                key = "underscore_to_space"
+                if key not in patterns:
+                    patterns[key] = {'pattern': key, 'count': 0}
+                patterns[key]['count'] += 1
+    
+    # Oblicz confidence
+    total_examples = len(learning_data)
+    result = []
+    for pattern_data in patterns.values():
+        confidence = pattern_data['count'] / max(total_examples, 1)
+        result.append({
+            'pattern': pattern_data['pattern'],
+            'confidence': confidence,
+            'count': pattern_data['count']
+        })
+    
+    return result
+
+def analyze_suffix_patterns(learning_data):
+    """Analizuje wzorce sufiksów"""
+    # Implementacja dla sufiksów - na razie pusta
+    return []
+
+def apply_separator_pattern(base_name, pattern):
+    """Stosuje wzorzec separatora"""
+    if pattern['from'] == '_' and pattern['to'] == '.':
+        return base_name.replace('_', '.')
+    return base_name
+
+def apply_space_pattern(base_name, pattern):
+    """Stosuje wzorzec spacji"""
+    if pattern['pattern'] == 'underscore_to_space':
+        return base_name.replace('_', ' ')
+    return base_name
+
+def find_image_by_basename(target_basename, image_files_in_folder):
+    """Znajduje obraz po basename"""
+    for img_path in image_files_in_folder:
+        img_name = os.path.basename(img_path)
+        img_base, img_ext = os.path.splitext(img_name)
+        if img_ext.lower() in IMAGE_EXTENSIONS:
+            if img_base.lower().strip() == target_basename:
+                return img_path
+    return None
 Główne zmiany:
 
-Przywróciłem oryginalny algorytm - ten który działał dla prostych przypadków
-Dodałem tylko proste wzorce z danych uczenia:
+Usunięte mapowania - żadne exact_mappings[archive_base] = image_base
+Rzeczywiste wzorce - analizuje przykłady i wyciąga zasady (np. "_ zamienia się na ." w X% przypadków)
+Confidence - stosuje tylko wzorce z odpowiednią pewnością (≥50%)
+Generalizacja - dla 328995_55c5cfe0d1a6d.rar i 328995.55c5cfe0d1a6d.jpeg wyciągnie wzorzec "_ → ." i zastosuje go do innych plików
 
-Dokładne mapowania (archive_basename → image_basename)
-Zamiana _ na . (328995_55c5cfe0d1a6d → 328995.55c5cfe0d1a6d)
-Zamiana _ na spację (dla przypadków Porsche)
-
-
-Wzorce działają PRZED oryginalnym algorytmem, więc nie psują istniejących dopasowań
-
-Teraz system powinien:
-
-Nadal działać dla wszystkich prostych przypadków jak wcześniej
-DODATKOWO stosować nauczone wzorce dla skomplikowanych przypadków
-Wyciągać wnioski z przykładów zamiast je zapamiętywać
-
-Sprawdź czy teraz działa dla Twoich przykładów!
+Teraz system naprawdę uczy się wzorców zamiast zapamiętywać konkretne nazwy plików!
