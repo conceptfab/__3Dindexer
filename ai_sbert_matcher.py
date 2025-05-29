@@ -104,9 +104,10 @@ class SBERTFileMatcher:
             self.model = SentenceTransformer(model_name)
 
         # Zachowaj oryginalne progi
-        self.similarity_threshold = 0.45
-        self.high_confidence_threshold = 0.70
-        self.very_high_confidence_threshold = 0.85
+        self.similarity_threshold = 0.30
+        self.high_confidence_threshold = 0.60
+        self.very_high_confidence_threshold = 0.80
+        self.low_similarity_threshold = 0.20
 
     def _setup_cpu_optimization(self):
         """Konfiguruje optymalizacje CPU"""
@@ -176,13 +177,17 @@ class SBERTFileMatcher:
 
     def preprocess_filename(self, filename: str) -> str:
         """
-        Ulepszone przetwarzanie nazw plików - uproszczona wersja dla lepszego dopasowania
+        Ulepszone przetwarzanie z zachowaniem więcej kontekstu
         """
         # Usuń rozszerzenie
         name_without_ext = os.path.splitext(filename)[0]
         
-        # Prosta normalizacja: zamień separatory na spacje
-        processed = re.sub(r"[_\-\.]", " ", name_without_ext)
+        # Zachowaj więcej informacji - zamień tylko podkreślenia i myślniki
+        processed = re.sub(r"[_\-]", " ", name_without_ext)
+        
+        # Zachowaj kropki jako separatory dla numerów/wersji
+        processed = re.sub(r"\.(?=\d)", " ", processed)  # Kropka przed cyfrą -> spacja
+        processed = re.sub(r"(?<=\d)\.(?=\d)", " ", processed)  # Kropka między cyframi -> spacja
         
         # Usuń wielokrotne spacje
         processed = re.sub(r"\s+", " ", processed).strip()
@@ -260,79 +265,81 @@ class SBERTFileMatcher:
 
     def find_best_matches(self, archive_files: List[str], image_files: List[str]) -> List[Dict]:
         """
-        Ulepszone dopasowywanie z warstwą fallback
+        Znajduje najlepsze dopasowania między plikami archiwum a obrazami
         """
-        if not archive_files or not image_files:
-            logger.warning("Brak plików do dopasowania")
-            return []
-
-        logger.info(f"Szukanie dopasowań: {len(archive_files)} archiwów vs {len(image_files)} obrazów")
-
-        # Oblicz embeddings SBERT
-        archive_embeddings = self.calculate_embeddings(archive_files)
-        image_embeddings = self.calculate_embeddings(image_files)
-        similarities = cosine_similarity(archive_embeddings, image_embeddings)
-
         matches = []
         used_images = set()
 
-        # Pierwsza faza: dopasowania SBERT
-        for i, archive_file in enumerate(archive_files):
+        for archive_file in archive_files:
             best_similarity = 0.0
             best_image_idx = -1
-            best_method = "SBERT"
+            best_method = "NO_MATCH"
 
-            for j, image_file in enumerate(image_files):
-                if j in used_images:
-                    continue
+            # Pierwsza faza: SBERT
+            try:
+                embeddings = self.calculate_embeddings([archive_file] + image_files)
+                if len(embeddings) > 1:
+                    archive_embedding = embeddings[0]
+                    image_embeddings = embeddings[1:]
+                    
+                    similarities = cosine_similarity([archive_embedding], image_embeddings)[0]
+                    
+                    for j, similarity in enumerate(similarities):
+                        if j in used_images:
+                            continue
+                            
+                        if similarity > best_similarity:
+                            best_similarity = similarity
+                            best_image_idx = j
+                            best_method = "SBERT"
+            except Exception as e:
+                logger.warning(f"Błąd SBERT dla {archive_file}: {e}")
 
-                sbert_similarity = similarities[i][j]
-                if sbert_similarity > best_similarity and sbert_similarity >= self.similarity_threshold:
-                    best_similarity = sbert_similarity
-                    best_image_idx = j
-
-            # Druga faza: jeśli SBERT nie znalazł dopasowania, użyj prostego algorytmu
+            # Druga faza: proste dopasowanie
             if best_image_idx == -1:
-                logger.debug(f"SBERT nie znalazł dopasowania dla '{archive_file}', próbuję prostego algorytmu")
+                for j, image_file in enumerate(image_files):
+                    if j in used_images:
+                        continue
+                    
+                    simple_similarity = self.simple_string_similarity(archive_file, image_file)
+                    if simple_similarity > best_similarity and simple_similarity >= self.low_similarity_threshold:
+                        best_similarity = simple_similarity
+                        best_image_idx = j
+                        best_method = "SIMPLE_MATCH"
+
+            # Trzecia faza: bardzo proste dopasowania dla pozostałych plików
+            if best_image_idx == -1:
+                logger.debug(f"Próbuję bardzo proste dopasowanie dla '{archive_file}'")
                 
                 for j, image_file in enumerate(image_files):
                     if j in used_images:
                         continue
-
-                    simple_similarity = self.simple_string_similarity(archive_file, image_file)
-                    # Niższy próg dla prostego algorytmu
-                    if simple_similarity > best_similarity and simple_similarity >= 0.3:
-                        best_similarity = simple_similarity
-                        best_image_idx = j
-                        best_method = "SIMPLE_STRING"
+                    
+                    # Bardzo proste dopasowanie - tylko nazwy bez rozszerzeń
+                    archive_base = os.path.splitext(archive_file)[0].lower()
+                    image_base = os.path.splitext(image_file)[0].lower()
+                    
+                    # Usuń wszystkie separatory i porównaj
+                    archive_clean = re.sub(r'[_\-\.\s]', '', archive_base)
+                    image_clean = re.sub(r'[_\-\.\s]', '', image_base)
+                    
+                    # Sprawdź czy jedna nazwa zawiera drugą
+                    if (archive_clean in image_clean or image_clean in archive_clean) and len(archive_clean) > 2:
+                        very_simple_similarity = 0.25  # Przypisz stały wynik dla tego typu dopasowania
+                        if very_simple_similarity > best_similarity:
+                            best_similarity = very_simple_similarity
+                            best_image_idx = j
+                            best_method = "VERY_SIMPLE_MATCH"
 
             if best_image_idx != -1:
-                image_file = image_files[best_image_idx]
                 used_images.add(best_image_idx)
-
-                # Określ poziom pewności
-                if best_similarity >= self.very_high_confidence_threshold:
-                    confidence_level = "VERY_HIGH"
-                elif best_similarity >= self.high_confidence_threshold:
-                    confidence_level = "HIGH"
-                elif best_similarity >= 0.50:
-                    confidence_level = "MEDIUM"
-                else:
-                    confidence_level = "LOW"
-
-                match_info = {
+                matches.append({
                     "archive_file": archive_file,
-                    "image_file": image_file,
-                    "similarity_score": float(best_similarity),
-                    "confidence_level": confidence_level,
-                    "matching_method": best_method,
-                    "timestamp": datetime.now().isoformat(),
-                }
+                    "image_file": image_files[best_image_idx],
+                    "similarity": float(best_similarity),
+                    "method": best_method
+                })
 
-                matches.append(match_info)
-                logger.info(f"✅ Dopasowanie [{confidence_level}][{best_method}]: '{archive_file}' ↔ '{image_file}' (score: {best_similarity:.3f})")
-
-        logger.info(f"Znaleziono {len(matches)} dopasowań z {len(archive_files)} archiwów")
         return matches
 
     def debug_matching_process(self, archive_file: str, image_files: List[str]) -> Dict:
@@ -361,8 +368,8 @@ class SBERTFileMatcher:
                     "sbert_similarity": float(sbert_sim),
                     "simple_similarity": float(simple_sim),
                     "sbert_threshold_met": sbert_sim >= self.similarity_threshold,
-                    "simple_threshold_met": simple_sim >= 0.3,
-                    "would_match": sbert_sim >= self.similarity_threshold or simple_sim >= 0.3
+                    "simple_threshold_met": simple_sim >= self.low_similarity_threshold,
+                    "would_match": sbert_sim >= self.similarity_threshold or simple_sim >= self.low_similarity_threshold
                 }
                 
                 debug_info["candidates"].append(candidate_info)
@@ -403,6 +410,50 @@ class SBERTFileMatcher:
         }
 
         return analysis
+
+    def debug_specific_case(self, archive_name: str, image_name: str) -> Dict:
+        """
+        Szczegółowe debugowanie konkretnego przypadku
+        """
+        debug_result = {
+            "archive_name": archive_name,
+            "image_name": image_name,
+            "preprocessing": {
+                "archive_processed": self.preprocess_filename(archive_name),
+                "image_processed": self.preprocess_filename(image_name)
+            }
+        }
+        
+        # Test SBERT
+        try:
+            embeddings = self.calculate_embeddings([archive_name, image_name])
+            if len(embeddings) >= 2:
+                similarity = cosine_similarity([embeddings[0]], [embeddings[1]])[0][0]
+                debug_result["sbert_similarity"] = float(similarity)
+                debug_result["sbert_threshold_met"] = similarity >= self.similarity_threshold
+            else:
+                debug_result["sbert_error"] = "Nie udało się obliczyć embeddings"
+        except Exception as e:
+            debug_result["sbert_error"] = str(e)
+        
+        # Test prostego dopasowania
+        simple_sim = self.simple_string_similarity(archive_name, image_name)
+        debug_result["simple_similarity"] = simple_sim
+        debug_result["simple_threshold_met"] = simple_sim >= self.low_similarity_threshold
+        
+        # Test bardzo prostego dopasowania
+        archive_clean = re.sub(r'[_\-\.\s]', '', os.path.splitext(archive_name)[0].lower())
+        image_clean = re.sub(r'[_\-\.\s]', '', os.path.splitext(image_name)[0].lower())
+        
+        debug_result["very_simple"] = {
+            "archive_clean": archive_clean,
+            "image_clean": image_clean,
+            "archive_in_image": archive_clean in image_clean,
+            "image_in_archive": image_clean in archive_clean,
+            "would_match": (archive_clean in image_clean or image_clean in archive_clean) and len(archive_clean) > 2
+        }
+        
+        return debug_result
 
 
 def get_work_directory_from_config():
@@ -793,78 +844,67 @@ class AIFolderProcessor:
 
 def main():
     """
-    Funkcja główna z wyświetlaniem informacji o sprzęcie
+    Główna funkcja programu
     """
-    print("🤖 AI SBERT File Matcher - Automatyczne przetwarzanie")
-    print("=" * 60)
-
-    # Wyświetl informacje o sprzęcie
-    try:
-        from hardware_detector import get_hardware_detector
-        detector = get_hardware_detector()
-        print("\n🔍 WYKRYTE SPRZĘT:")
-        print("-" * 40)
-        print(detector.get_hardware_summary())
-    except ImportError:
-        print("\n⚠️  Moduł wykrywania sprzętu niedostępny")
-        print("💡 Zainstaluj: pip install psutil py-cpuinfo torch")
-    except Exception as e:
-        print(f"\n⚠️  Błąd wykrywania sprzętu: {e}")
-
-    print("\n" + "=" * 60)
-
-    # Utwórz procesor i sprawdź konfigurację
-    processor = AIFolderProcessor(enable_hardware_optimization=True)
-
-    if not processor.work_directory:
-        print("❌ Brak folderu roboczego w konfiguracji!")
-        print("💡 Uruchom najpierw główną aplikację i ustaw folder roboczy.")
-        return
-
-    print(f"📁 Folder roboczy z konfiguracji: {processor.work_directory}")
-
-    if not os.path.exists(processor.work_directory):
-        print(f"❌ Folder roboczy nie istnieje: {processor.work_directory}")
-        return
-
-    # Reszta funkcji bez zmian...
-    print("\n🔄 Tryby przetwarzania:")
-    print("1. Automatyczne (cały folder roboczy)")
-    print("2. Konkretny folder")
-    print("3. Test wydajności sprzętu")
-    print("4. Wyjście")
-
-    choice = input("\nWybierz opcję (1-4): ").strip()
-
-    if choice == "1":
-        print(f"\n🚀 Rozpoczynam automatyczne przetwarzanie AI...")
-        processor.start_ai_processing(print)
-    elif choice == "2":
-        test_folder = input("Podaj ścieżkę do konkretnego folderu: ").strip()
-        if not test_folder:
-            print("❌ Nie podano ścieżki")
-            return
-        if not os.path.exists(test_folder):
-            print(f"❌ Folder nie istnieje: {test_folder}")
-            return
-        print(f"🔍 Przetwarzam konkretny folder: {test_folder}")
-        processor.process_folder_recursive(test_folder, print)
-    elif choice == "3":
-        # Test wydajności
-        print("\n🧪 Test wydajności sprzętu...")
-        test_files = [f"test_file_{i}.zip" for i in range(100)]
-        start_time = time.time()
-        embeddings = processor.matcher.calculate_embeddings(test_files)
-        test_time = time.time() - start_time
-        print(f"⏱️  Test 100 plików: {test_time:.2f}s ({100/test_time:.1f} plików/s)")
-    elif choice == "4" or choice == "":
-        print("👋 Do widzenia!")
-        return
-    else:
-        print("❌ Nieprawidłowy wybór")
-        return
-
-    print("\n🎉 Przetwarzanie AI zakończone! Sprawdź pliki index.json w folderach.")
+    print("\n🤖 AI File Matcher - Dopasowywanie plików")
+    print("=" * 50)
+    
+    while True:
+        print("\n📋 Dostępne opcje:")
+        print("1. Przetwórz folder")
+        print("2. Przetwórz folder rekurencyjnie")
+        print("3. Wygeneruj galerię AI")
+        print("4. Wyjście")
+        print("5. Test konkretnego przypadku")
+        
+        choice = input("\nWybierz opcję (1-5): ").strip()
+        
+        if choice == "1":
+            folder_path = input("\nPodaj ścieżkę do folderu: ").strip()
+            if folder_path:
+                processor = AIFolderProcessor()
+                processor.process_folder(folder_path)
+            else:
+                print("❌ Nie podano ścieżki")
+                
+        elif choice == "2":
+            folder_path = input("\nPodaj ścieżkę do folderu głównego: ").strip()
+            if folder_path:
+                processor = AIFolderProcessor()
+                processor.process_folder_recursive(folder_path)
+            else:
+                print("❌ Nie podano ścieżki")
+                
+        elif choice == "3":
+            folder_path = input("\nPodaj ścieżkę do folderu: ").strip()
+            if folder_path:
+                gallery_data = generate_ai_only_gallery_data(folder_path)
+                print("\n✅ Galeria AI wygenerowana")
+            else:
+                print("❌ Nie podano ścieżki")
+                
+        elif choice == "4":
+            print("\n👋 Do widzenia!")
+            break
+            
+        elif choice == "5":
+            # Test konkretnego przypadku
+            print("\n🔍 Test konkretnego przypadku:")
+            archive_name = input("Podaj nazwę pliku archiwum: ").strip()
+            image_name = input("Podaj nazwę pliku obrazu: ").strip()
+            
+            if archive_name and image_name:
+                processor = AIFolderProcessor()
+                debug_result = processor.matcher.debug_specific_case(archive_name, image_name)
+                print("\n📊 WYNIKI DEBUGOWANIA:")
+                print("-" * 50)
+                import json
+                print(json.dumps(debug_result, indent=2, ensure_ascii=False))
+            else:
+                print("❌ Nie podano nazw plików")
+                
+        else:
+            print("❌ Nieprawidłowa opcja")
 
 
 def generate_ai_only_gallery_data(folder_path: str) -> Dict:
