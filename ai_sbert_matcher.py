@@ -305,23 +305,38 @@ class AIFolderProcessor:
         """
         archive_files = []
         image_files = []
+        start_time = time.time()
+        SCAN_TIMEOUT_SECONDS = 30  # Timeout dla skanowania pojedynczego folderu
 
         try:
             for entry in os.scandir(folder_path):
-                if entry.is_file(follow_symlinks=False):
-                    filename = entry.name.lower()
+                if time.time() - start_time > SCAN_TIMEOUT_SECONDS:
+                    logger.warning(f"⏰ Przekroczono limit czasu skanowania ({SCAN_TIMEOUT_SECONDS}s) w folderze {folder_path}")
+                    break
 
-                    if filename == "index.json":
-                        continue
+                try:
+                    if entry.is_file(follow_symlinks=False):
+                        filename = entry.name.lower()
 
-                    if filename.endswith(IMAGE_EXTENSIONS):
-                        image_files.append(entry.name)
-                    else:
-                        # Wszystkie inne pliki traktujemy jako archiwa/modele
-                        archive_files.append(entry.name)
+                        if filename == "index.json":
+                            continue
+
+                        if filename.endswith(IMAGE_EXTENSIONS):
+                            image_files.append(entry.name)
+                        else:
+                            # Wszystkie inne pliki traktujemy jako archiwa/modele
+                            archive_files.append(entry.name)
+                except UnicodeEncodeError as e:
+                    logger.error(f"Błąd kodowania nazwy pliku w {folder_path}: {e}")
+                    continue
+                except OSError as e:
+                    logger.error(f"Błąd dostępu do pliku w {folder_path}: {e}")
+                    continue
 
         except OSError as e:
             logger.error(f"Błąd skanowania folderu {folder_path}: {e}")
+        except Exception as e:
+            logger.error(f"Nieoczekiwany błąd podczas skanowania {folder_path}: {e}")
 
         return archive_files, image_files
 
@@ -473,25 +488,45 @@ class AIFolderProcessor:
         processed_folders = 0
         error_folders = 0
 
-        for root, dirs, files in os.walk(root_folder_path):
-            # Pomiń linki symboliczne
-            if os.path.islink(root):
-                continue
+        try:
+            for root, dirs, files in os.walk(root_folder_path, onerror=lambda e: logger.error(f"Błąd podczas chodzenia po katalogu: {e}")):
+                try:
+                    # Pomiń linki symboliczne
+                    if os.path.islink(root):
+                        continue
 
-            # Sprawdź czy folder zawiera index.json (został już przeskanowany)
-            index_json_path = os.path.join(root, "index.json")
-            if not os.path.exists(index_json_path):
-                logger.debug(f"⏭️ Pomijam folder bez index.json: {root}")
-                continue
+                    # Sprawdź czy folder zawiera index.json (został już przeskanowany)
+                    index_json_path = os.path.join(root, "index.json")
+                    if not os.path.exists(index_json_path):
+                        logger.debug(f"⏭️ Pomijam folder bez index.json: {root}")
+                        continue
 
-            logger.info(f"📁 Przetwarzam AI dla folderu: {root}")
+                    logger.info(f"📁 Przetwarzam AI dla folderu: {root}")
+                    if progress_callback:
+                        progress_callback(f"📁 Przetwarzam AI dla folderu: {root}")
+
+                    if self.process_folder(root, progress_callback):
+                        processed_folders += 1
+                    else:
+                        error_folders += 1
+
+                except UnicodeEncodeError as e:
+                    logger.error(f"Błąd kodowania w folderze {root}: {e}")
+                    error_folders += 1
+                    continue
+                except OSError as e:
+                    logger.error(f"Błąd systemowy w folderze {root}: {e}")
+                    error_folders += 1
+                    continue
+                except Exception as e:
+                    logger.error(f"Nieoczekiwany błąd w folderze {root}: {e}")
+                    error_folders += 1
+                    continue
+
+        except Exception as e:
+            logger.error(f"Krytyczny błąd podczas rekurencyjnego przetwarzania: {e}")
             if progress_callback:
-                progress_callback(f"📁 Przetwarzam AI dla folderu: {root}")
-
-            if self.process_folder(root, progress_callback):
-                processed_folders += 1
-            else:
-                error_folders += 1
+                progress_callback(f"❌ Krytyczny błąd: {e}")
 
         success_msg = f"✅ Przetwarzanie AI zakończone: {processed_folders} folderów OK, {error_folders} błędów"
         logger.info(success_msg)
