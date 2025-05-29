@@ -154,25 +154,35 @@ def print_results(results: Dict):
     print(f"Skuteczność AI: {results['total']['ai_effectiveness']:.1f}%")
     print(f"Poprawa skuteczności: {results['total']['improvement_percent']:+.1f}%")
 
-    print("\n--- STATYSTYKI PER FOLDER ---")
-    for folder, stats in sorted(results["folders"].items()):
-        print(f"\nFolder: {folder}")
-        print(f"  Dopasowania zwykłe: {stats['classic_matches']}")
-        print(f"  Dopasowania AI: {stats['ai_matches']}")
-        print(f"  Pliki bez podglądu: {stats['files_without_preview']}")
-        print(f"  Obrazy bez pary: {stats['other_images']}")
+    # Filtruj foldery z różnicami
+    folders_with_differences = {
+        folder: stats 
+        for folder, stats in results["folders"].items()
+        if stats["ai_matches"] != stats["classic_matches"]
+    }
 
-        # Różnica dla tego folderu
-        folder_diff = stats["ai_matches"] - stats["classic_matches"]
-        print(f"  Różnica (AI - zwykły): {folder_diff:+d}")
+    if folders_with_differences:
+        print("\n--- STATYSTYKI PER FOLDER (tylko z różnicami) ---")
+        for folder, stats in sorted(folders_with_differences.items()):
+            print(f"\nFolder: {folder}")
+            print(f"  Dopasowania zwykłe: {stats['classic_matches']}")
+            print(f"  Dopasowania AI: {stats['ai_matches']}")
+            print(f"  Pliki bez podglądu: {stats['files_without_preview']}")
+            print(f"  Obrazy bez pary: {stats['other_images']}")
 
-        # Skuteczność dla tego folderu
-        print(
-            f"  Skuteczność zwykłego algorytmu: "
-            f"{stats['classic_effectiveness']:.1f}%"
-        )
-        print(f"  Skuteczność AI: {stats['ai_effectiveness']:.1f}%")
-        print(f"  Poprawa skuteczności: {stats['improvement_percent']:+.1f}%")
+            # Różnica dla tego folderu
+            folder_diff = stats["ai_matches"] - stats["classic_matches"]
+            print(f"  Różnica (AI - zwykły): {folder_diff:+d}")
+
+            # Skuteczność dla tego folderu
+            print(
+                f"  Skuteczność zwykłego algorytmu: "
+                f"{stats['classic_effectiveness']:.1f}%"
+            )
+            print(f"  Skuteczność AI: {stats['ai_effectiveness']:.1f}%")
+            print(f"  Poprawa skuteczności: {stats['improvement_percent']:+.1f}%")
+    else:
+        print("\nNie znaleziono folderów z różnicami w dopasowaniach.")
 
 
 def main():
