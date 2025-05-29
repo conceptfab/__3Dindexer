@@ -238,14 +238,34 @@ class MainWindow(QMainWindow):
         self.setup_file_operations_bridge()
 
         if self.current_work_directory:
-            print(
-                f"🔍 INIT - Sprawdzanie galerii dla: {self.current_work_directory}",
-                flush=True,
-            )
+            print(f"🔍 INIT - Sprawdzanie galerii dla: {self.current_work_directory}", flush=True)
+            
+            # Sprawdź czy istnieją dane AI
+            has_ai_data = False
+            for root, dirs, files in os.walk(self.current_work_directory):
+                if "index.json" in files:
+                    try:
+                        with open(os.path.join(root, "index.json"), "r", encoding="utf-8") as f:
+                            data = json.load(f)
+                            if "AI_processing_date" in data:
+                                has_ai_data = True
+                                break
+                    except:
+                        continue
+            
+            # Jeśli są dane AI, sprawdź czy istnieje galeria AI
+            if has_ai_data:
+                ai_gallery_path = self.get_current_ai_gallery_index_html()
+                if ai_gallery_path and os.path.exists(ai_gallery_path):
+                    self.gallery_mode = "ai"
+                    self.update_mode_button_text()
+                    self.current_gallery_root_html = ai_gallery_path
+                    self.show_ai_gallery_in_app()
+                    return
+            
+            # Jeśli nie ma galerii AI lub nie ma danych AI, sprawdź klasyczną galerię
             self.current_gallery_root_html = self.get_current_gallery_index_html()
-            if self.current_gallery_root_html and os.path.exists(
-                self.current_gallery_root_html
-            ):
+            if self.current_gallery_root_html and os.path.exists(self.current_gallery_root_html):
                 self.show_gallery_in_app()
             else:
                 print(
