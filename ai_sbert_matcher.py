@@ -176,23 +176,15 @@ class SBERTFileMatcher:
 
     def preprocess_filename(self, filename: str) -> str:
         """
-        Ulepszone przetwarzanie nazw plików z zachowaniem kluczowych informacji
+        Ulepszone przetwarzanie nazw plików - uproszczona wersja dla lepszego dopasowania
         """
         # Usuń rozszerzenie
         name_without_ext = os.path.splitext(filename)[0]
         
-        # Zachowaj oryginalne ID i numery seryjne
-        # Zamień separatory na spacje, ale zachowaj numery
-        processed = re.sub(r"[_\-]", " ", name_without_ext)
-        processed = re.sub(r"\.(?=\D)", " ", processed)  # Kropki tylko przed literami
+        # Prosta normalizacja: zamień separatory na spacje
+        processed = re.sub(r"[_\-\.]", " ", name_without_ext)
         
-        # Zachowaj długie numery (prawdopodobnie ID)
-        processed = re.sub(r"(\d{6,})", r" ID\1 ", processed)
-        
-        # Oznacz krótkie numery jako wersje
-        processed = re.sub(r"\b(\d{1,3})\b", r" VER\1 ", processed)
-        
-        # Wyczyść wielokrotne spacje
+        # Usuń wielokrotne spacje
         processed = re.sub(r"\s+", " ", processed).strip()
         
         logger.debug(f"Preprocessing: '{filename}' -> '{processed}'")
@@ -200,46 +192,30 @@ class SBERTFileMatcher:
 
     def simple_string_similarity(self, str1: str, str2: str) -> float:
         """
-        Prosta miara podobieństwa bazująca na wspólnych słowach
-        Użyteczna jako fallback gdy SBERT zawodzi
+        Prosta miara podobieństwa z priorytetem dla identycznych części
         """
+        # Usuń rozszerzenia i normalizuj
+        clean1 = os.path.splitext(str1)[0].lower()
+        clean2 = os.path.splitext(str2)[0].lower()
+        
+        # Sprawdź dokładne dopasowanie po normalizacji separatorów
+        normalized1 = re.sub(r"[_\-\.]", "", clean1)
+        normalized2 = re.sub(r"[_\-\.]", "", clean2)
+        
+        if normalized1 == normalized2:
+            return 1.0  # Identyczne po normalizacji = 100% dopasowania
+        
+        # Reszta logiki jak wcześniej...
         words1 = set(self.preprocess_filename(str1).lower().split())
         words2 = set(self.preprocess_filename(str2).lower().split())
         
         if not words1 or not words2:
             return 0.0
         
-        # Jaccard similarity
         intersection = len(words1.intersection(words2))
         union = len(words1.union(words2))
         
-        jaccard = intersection / union if union > 0 else 0.0
-        
-        # Bonus za długie wspólne części
-        str1_clean = self.preprocess_filename(str1).replace(" ", "").lower()
-        str2_clean = self.preprocess_filename(str2).replace(" ", "").lower()
-        
-        # Longest common substring
-        lcs_length = self.longest_common_substring_length(str1_clean, str2_clean)
-        lcs_bonus = lcs_length / max(len(str1_clean), len(str2_clean))
-        
-        return min(1.0, jaccard + (lcs_bonus * 0.3))
-
-    def longest_common_substring_length(self, str1: str, str2: str) -> int:
-        """Znajduje długość najdłuższego wspólnego podciągu"""
-        m, n = len(str1), len(str2)
-        dp = [[0] * (n + 1) for _ in range(m + 1)]
-        max_length = 0
-        
-        for i in range(1, m + 1):
-            for j in range(1, n + 1):
-                if str1[i-1] == str2[j-1]:
-                    dp[i][j] = dp[i-1][j-1] + 1
-                    max_length = max(max_length, dp[i][j])
-                else:
-                    dp[i][j] = 0
-        
-        return max_length
+        return intersection / union if union > 0 else 0.0
 
     def calculate_embeddings(self, filenames: List[str]) -> np.ndarray:
         """
@@ -507,6 +483,9 @@ class AIFolderProcessor:
         SCAN_TIMEOUT_SECONDS = 30  # Timeout dla skanowania pojedynczego folderu
 
         try:
+            # Dodaj obsługę kodowania UTF-8
+            folder_path = os.path.abspath(folder_path)
+            
             for entry in os.scandir(folder_path):
                 if time.time() - start_time > SCAN_TIMEOUT_SECONDS:
                     logger.warning(f"⏰ Przekroczono limit czasu skanowania ({SCAN_TIMEOUT_SECONDS}s) w folderze {folder_path}")
@@ -514,16 +493,17 @@ class AIFolderProcessor:
 
                 try:
                     if entry.is_file(follow_symlinks=False):
-                        filename = entry.name.lower()
+                        # Użyj str() zamiast bezpośredniego odczytu name
+                        filename = str(entry.name).lower()
 
                         if filename == "index.json":
                             continue
 
                         if filename.endswith(IMAGE_EXTENSIONS):
-                            image_files.append(entry.name)
+                            image_files.append(str(entry.name))
                         else:
                             # Wszystkie inne pliki traktujemy jako archiwa/modele
-                            archive_files.append(entry.name)
+                            archive_files.append(str(entry.name))
                 except UnicodeEncodeError as e:
                     logger.error(f"Błąd kodowania nazwy pliku w {folder_path}: {e}")
                     continue
@@ -551,13 +531,35 @@ class AIFolderProcessor:
             logger.error(f"❌ Ścieżka nie jest folderem: {folder_path}")
             return False
 
-        # Sprawdź czy istnieje index.json (folder musi być już przeskanowany)
+        # Sprawdź czy istnieje index.json
         index_json_path = os.path.join(folder_path, "index.json")
         if not os.path.exists(index_json_path):
-            logger.warning(f"⚠️ Brak index.json w folderze: {folder_path}")
+            # Utwórz podstawowy index.json jeśli nie istnieje
+            logger.info(f"📝 Tworzę nowy index.json dla: {folder_path}")
             if progress_callback:
-                progress_callback(f"⚠️ Brak index.json w folderze: {folder_path}")
-            return False
+                progress_callback(f"📝 Tworzę nowy index.json dla: {folder_path}")
+            
+            basic_index_data = {
+                "folder_info": {
+                    "path": os.path.abspath(folder_path),
+                    "scan_date": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                    "total_size_bytes": 0,
+                    "file_count": 0,
+                    "subdir_count": 0,
+                    "archive_count": 0
+                },
+                "files_with_previews": [],
+                "files_without_previews": [],
+                "other_images": []
+            }
+            
+            try:
+                with open(index_json_path, "w", encoding="utf-8") as f:
+                    json.dump(basic_index_data, f, indent=4, ensure_ascii=False)
+                logger.info(f"✅ Utworzono index.json dla: {folder_path}")
+            except Exception as e:
+                logger.error(f"❌ Błąd tworzenia index.json dla {folder_path}: {e}")
+                return False
 
         # Zbierz pliki
         archive_files, image_files = self.collect_files_in_folder(folder_path)
@@ -687,17 +689,48 @@ class AIFolderProcessor:
         error_folders = 0
 
         try:
+            # Dodaj obsługę kodowania UTF-8
+            root_folder_path = os.path.abspath(root_folder_path)
+            
             for root, dirs, files in os.walk(root_folder_path, onerror=lambda e: logger.error(f"Błąd podczas chodzenia po katalogu: {e}")):
                 try:
                     # Pomiń linki symboliczne
                     if os.path.islink(root):
                         continue
 
-                    # Sprawdź czy folder zawiera index.json (został już przeskanowany)
+                    # Konwertuj ścieżkę na UTF-8
+                    root = str(root)
+                    
+                    # Sprawdź czy folder zawiera index.json
                     index_json_path = os.path.join(root, "index.json")
                     if not os.path.exists(index_json_path):
-                        logger.debug(f"⏭️ Pomijam folder bez index.json: {root}")
-                        continue
+                        # Utwórz podstawowy index.json jeśli nie istnieje
+                        logger.info(f"📝 Tworzę nowy index.json dla: {root}")
+                        if progress_callback:
+                            progress_callback(f"📝 Tworzę nowy index.json dla: {root}")
+                        
+                        basic_index_data = {
+                            "folder_info": {
+                                "path": os.path.abspath(root),
+                                "scan_date": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                                "total_size_bytes": 0,
+                                "file_count": 0,
+                                "subdir_count": 0,
+                                "archive_count": 0
+                            },
+                            "files_with_previews": [],
+                            "files_without_previews": [],
+                            "other_images": []
+                        }
+                        
+                        try:
+                            with open(index_json_path, "w", encoding="utf-8") as f:
+                                json.dump(basic_index_data, f, indent=4, ensure_ascii=False)
+                            logger.info(f"✅ Utworzono index.json dla: {root}")
+                        except Exception as e:
+                            logger.error(f"❌ Błąd tworzenia index.json dla {root}: {e}")
+                            error_folders += 1
+                            continue
 
                     logger.info(f"📁 Przetwarzam AI dla folderu: {root}")
                     if progress_callback:

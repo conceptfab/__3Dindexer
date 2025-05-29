@@ -376,7 +376,6 @@ def process_folder(folder_path, progress_callback=None):
         progress_callback(f"🔄 Przetwarzanie folderu: {folder_path}")
 
     learning_data = load_learning_data()
-    # (Logowanie danych uczenia się jest już w load_learning_data)
 
     # --- Sprawdzenia folderu ---
     try:
@@ -386,46 +385,65 @@ def process_folder(folder_path, progress_callback=None):
             logger.error(msg)
             if progress_callback: progress_callback(msg)
             return
-        
-        logger.debug(f"Sprawdzanie dostępu (R_OK): {folder_path}")
         if not os.access(folder_path, os.R_OK):
             msg = f"❌ Brak uprawnień do odczytu folderu: {folder_path}"
             logger.error(msg)
             if progress_callback: progress_callback(msg)
             return
-
-        logger.debug(f"Sprawdzanie czy jest linkiem symbolicznym: {folder_path}")
         if os.path.islink(folder_path):
             msg = f"⚠️ Pomijam przetwarzanie, folder jest linkiem symbolicznym: {folder_path}"
             logger.warning(msg)
             if progress_callback: progress_callback(msg)
             return
-            
-    except OSError as e: # Np. zbyt długa ścieżka (Windows)
+    except OSError as e:
         msg = f"❌ Błąd OSError podczas wstępnych sprawdzeń folderu {folder_path}: {e}"
         logger.error(msg, exc_info=True)
         if progress_callback: progress_callback(msg)
         return
-    except Exception as e: # Inne, mniej spodziewane błędy
+    except Exception as e:
         msg = f"❌ Nieoczekiwany błąd podczas wstępnych sprawdzeń folderu {folder_path}: {e}"
         logger.error(msg, exc_info=True)
         if progress_callback: progress_callback(msg)
         return
 
-    # --- Inicjalizacja danych dla index.json ---
-    index_data = {
-        "folder_info": {
-            "path": os.path.abspath(folder_path),
-            "total_size_bytes": 0,
-            "file_count": 0, # Liczba plików (nie-obrazów i nie index.json) + obrazy
-            "subdir_count": 0,
-            "archive_count": 0, # Wcześniej było tożsame z file_count, utrzymuję dla spójności
-            "scan_date": None 
-        },
-        "files_with_previews": [],
-        "files_without_previews": [],
-        "other_images": [], # Obrazy, które nie są podglądami
-    }
+    # --- Wczytaj lub utwórz index.json ---
+    index_json_path = os.path.join(folder_path, "index.json")
+    if os.path.exists(index_json_path):
+        try:
+            with open(index_json_path, "r", encoding="utf-8") as f:
+                index_data = json.load(f)
+            logger.info(f"📖 Załadowano istniejący index.json: {index_json_path}")
+        except Exception as e:
+            logger.error(f"❌ Błąd odczytu index.json ({index_json_path}): {e}")
+            # Jeśli nie da się odczytać, utwórz od nowa
+            index_data = {
+                "folder_info": {
+                    "path": os.path.abspath(folder_path),
+                    "total_size_bytes": 0,
+                    "file_count": 0,
+                    "subdir_count": 0,
+                    "archive_count": 0,
+                    "scan_date": None
+                },
+                "files_with_previews": [],
+                "files_without_previews": [],
+                "other_images": [],
+            }
+    else:
+        index_data = {
+            "folder_info": {
+                "path": os.path.abspath(folder_path),
+                "total_size_bytes": 0,
+                "file_count": 0,
+                "subdir_count": 0,
+                "archive_count": 0,
+                "scan_date": None
+            },
+            "files_with_previews": [],
+            "files_without_previews": [],
+            "other_images": [],
+        }
+        logger.info(f"📝 Tworzę nowy index.json: {index_json_path}")
 
     # Listy do przechowywania szczegółów o plikach przed dopasowaniem
     # Każdy element to krotka: (name, full_path, size_bytes)
@@ -569,7 +587,6 @@ def process_folder(folder_path, progress_callback=None):
     index_data["folder_info"]["total_size_readable"] = get_file_size_readable(index_data["folder_info"]["total_size_bytes"])
     index_data["folder_info"]["scan_date"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-    index_json_path = os.path.join(folder_path, "index.json")
     try:
         logger.debug(f"Próba zapisu pliku index.json do: {index_json_path}")
         with open(index_json_path, "w", encoding="utf-8") as f:

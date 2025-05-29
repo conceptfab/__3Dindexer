@@ -592,11 +592,15 @@ class MainWindow(QMainWindow):
                 has_index_files = True
                 break
         if not has_index_files:
-            QMessageBox.warning(
-                self,
-                "Brak danych",
-                f"Nie znaleziono plików index.json w '{self.current_work_directory}'. Uruchom skanowanie.",
-            )
+            # Zamiast komunikatu, uruchom klasyczne skanowanie, a po nim przebudowę galerii
+            self.log_message("Brak plików index.json, uruchamiam klasyczne skanowanie...")
+            self.progress_bar.setVisible(True)
+            self.progress_bar.setRange(0, 0)
+            self.scanner_thread = ScannerWorker(self.current_work_directory)
+            self.scanner_thread.progress_signal.connect(self.log_message)
+            self.scanner_thread.finished_signal.connect(lambda: self.rebuild_gallery(auto_show_after_build))
+            self.scanner_thread.start()
+            self.set_buttons_for_processing(True)
             return
 
         self.log_message(
@@ -1451,12 +1455,15 @@ class MainWindow(QMainWindow):
                 break
 
         if not has_index_files:
-            QMessageBox.warning(
-                self,
-                "Brak danych",
-                f"Nie znaleziono plików index.json w '{self.current_work_directory}'. "
-                "Uruchom najpierw skanowanie klasyczne.",
-            )
+            # Zamiast komunikatu, uruchom klasyczne skanowanie, a po nim AI
+            self.log_message("Brak plików index.json, uruchamiam klasyczne skanowanie przed AI...")
+            self.progress_bar.setVisible(True)
+            self.progress_bar.setRange(0, 0)
+            self.scanner_thread = ScannerWorker(self.current_work_directory)
+            self.scanner_thread.progress_signal.connect(self.log_message)
+            self.scanner_thread.finished_signal.connect(self.start_ai_scan)
+            self.scanner_thread.start()
+            self.set_buttons_for_processing(True)
             return
 
         self.progress_bar.setVisible(True)
