@@ -48,30 +48,131 @@ class SBERTFileMatcher:
     Klasa do dopasowywania nazw plików używając Sentence-BERT
     """
 
-    def __init__(self, model_name: str = "all-MiniLM-L6-v2"):
+    def __init__(self, model_name: str = "all-MiniLM-L6-v2", auto_optimize: bool = True):
         """
-        Inicjalizacja z wyborem modelu SBERT
-
-        Modele do wyboru:
-        - 'all-MiniLM-L6-v2' - szybki, dobry stosunek jakość/prędkość (22MB)
-        - 'all-MiniLM-L12-v2' - większy, lepszy (43MB)
-        - 'paraphrase-MiniLM-L6-v2' - dobry do parafraz (22MB)
+        Inicjalizacja z automatyczną optymalizacją sprzętową
+        
+        Args:
+            model_name: Nazwa modelu SBERT
+            auto_optimize: Czy automatycznie optymalizować dla dostępnego sprzętu
         """
+        self.hardware_config = None
+        
+        if auto_optimize:
+            try:
+                from hardware_detector import get_hardware_detector
+                detector = get_hardware_detector()
+                self.hardware_config = detector.optimal_config
+                
+                logger.info("🔍 Wykryte sprzęt:")
+                logger.info(detector.get_hardware_summary())
+                
+            except ImportError as e:
+                logger.warning(f"Moduł hardware_detector niedostępny: {e}")
+                auto_optimize = False
+            except Exception as e:
+                logger.warning(f"Błąd automatycznej optymalizacji: {e}")
+                auto_optimize = False
+        
+        # Ustaw zmienne środowiskowe dla optymalizacji CPU
+        if auto_optimize and self.hardware_config:
+            self._setup_cpu_optimization()
+        
         logger.info(f"Ładowanie modelu SBERT: {model_name}")
         start_time = time.time()
 
         try:
-            self.model = SentenceTransformer(model_name)
+            # Konfiguracja device i model
+            device = self._get_optimal_device() if auto_optimize else None
+            
+            if device:
+                logger.info(f"🚀 Używam urządzenia: {device}")
+                self.model = SentenceTransformer(model_name, device=device)
+            else:
+                self.model = SentenceTransformer(model_name)
+            
+            # Optymalizacje modelu
+            if auto_optimize and self.hardware_config:
+                self._apply_model_optimizations()
+            
             load_time = time.time() - start_time
             logger.info(f"Model załadowany w {load_time:.2f}s")
+            
         except Exception as e:
             logger.error(f"Błąd ładowania modelu: {e}")
-            raise
+            logger.info("Próbuję załadować model bez optymalizacji...")
+            self.model = SentenceTransformer(model_name)
 
-        # Obniżone progi dla lepszej czułości
-        self.similarity_threshold = 0.45  # Bardziej tolerancyjny próg
-        self.high_confidence_threshold = 0.70  # Realistyczny próg wysokiej pewności
-        self.very_high_confidence_threshold = 0.85  # Dla wyjątkowych dopasowań
+        # Zachowaj oryginalne progi
+        self.similarity_threshold = 0.45
+        self.high_confidence_threshold = 0.70
+        self.very_high_confidence_threshold = 0.85
+
+    def _setup_cpu_optimization(self):
+        """Konfiguruje optymalizacje CPU"""
+        if not self.hardware_config:
+            return
+        
+        # Ustaw liczbę wątków
+        num_threads = str(self.hardware_config.get('num_threads', 4))
+        os.environ['OMP_NUM_THREADS'] = num_threads
+        os.environ['MKL_NUM_THREADS'] = num_threads
+        os.environ['NUMEXPR_NUM_THREADS'] = num_threads
+        
+        # Optymalizacje Intel MKL
+        if self.hardware_config.get('optimization_level') in ['optimized_cpu', 'basic_cpu']:
+            os.environ['MKL_ENABLE_INSTRUCTIONS'] = 'AVX2' if self.hardware_config.get('use_avx_optimization') else 'SSE4_2'
+        
+        logger.info(f"🔧 CPU zoptymalizowany: {num_threads} wątków")
+
+    def _get_optimal_device(self) -> Optional[str]:
+        """Zwraca optymalne urządzenie dla modelu"""
+        if not self.hardware_config:
+            return None
+        
+        device_type = self.hardware_config.get('device', 'cpu')
+        
+        if device_type == 'cuda':
+            try:
+                import torch
+                if torch.cuda.is_available():
+                    return 'cuda'
+            except ImportError:
+                logger.warning("PyTorch/CUDA niedostępne")
+        
+        elif device_type == 'mps':
+            try:
+                import torch
+                if torch.backends.mps.is_available():
+                    return 'mps'
+            except ImportError:
+                logger.warning("PyTorch/MPS niedostępne")
+        
+        return 'cpu'
+
+    def _apply_model_optimizations(self):
+        """Stosuje optymalizacje modelu"""
+        if not self.hardware_config:
+            return
+        
+        try:
+            # Optymalizacja precyzji dla GPU
+            if self.hardware_config.get('device') in ['cuda', 'mps'] and self.hardware_config.get('model_precision') == 'float16':
+                self.model = self.model.half()
+                logger.info("🔧 Model przełączony na float16")
+            
+            # Kompilacja modelu dla PyTorch 2.0+
+            if hasattr(self.model, '_modules'):
+                try:
+                    import torch
+                    if hasattr(torch, 'compile') and torch.__version__ >= '2.0':
+                        self.model = torch.compile(self.model, mode='reduce-overhead')
+                        logger.info("🚀 Model skompilowany z PyTorch 2.0")
+                except Exception as e:
+                    logger.debug(f"Kompilacja modelu nieudana: {e}")
+            
+        except Exception as e:
+            logger.warning(f"Błąd podczas optymalizacji modelu: {e}")
 
     def preprocess_filename(self, filename: str) -> str:
         """
@@ -142,24 +243,44 @@ class SBERTFileMatcher:
 
     def calculate_embeddings(self, filenames: List[str]) -> np.ndarray:
         """
-        Oblicza embeddings dla listy nazw plików
+        Oblicza embeddings z optymalizacjami sprzętowymi
         """
         if not filenames:
             return np.array([])
 
-        # Przetwarzaj nazwy plików
         processed_names = [self.preprocess_filename(name) for name in filenames]
-
+        
         logger.debug(f"Obliczanie embeddings dla {len(processed_names)} plików")
         start_time = time.time()
 
-        # Oblicz embeddings
-        embeddings = self.model.encode(processed_names, show_progress_bar=False)
-
-        calc_time = time.time() - start_time
-        logger.debug(f"Embeddings obliczone w {calc_time:.2f}s")
-
-        return embeddings
+        # Użyj optymalnego batch_size
+        batch_size = self.hardware_config.get('batch_size', 32) if self.hardware_config else 32
+        
+        try:
+            # Oblicz embeddings z optymalnym batch_size
+            embeddings = self.model.encode(
+                processed_names, 
+                batch_size=batch_size,
+                show_progress_bar=len(processed_names) > 50,
+                convert_to_numpy=True,
+                normalize_embeddings=True  # Normalizacja dla lepszej wydajności cosine similarity
+            )
+            
+            calc_time = time.time() - start_time
+            performance_info = f"Embeddings obliczone w {calc_time:.2f}s"
+            
+            if self.hardware_config:
+                items_per_second = len(processed_names) / calc_time if calc_time > 0 else 0
+                performance_info += f" ({items_per_second:.1f} plików/s, batch_size: {batch_size})"
+            
+            logger.debug(performance_info)
+            
+            return embeddings
+            
+        except Exception as e:
+            logger.error(f"Błąd podczas obliczania embeddings: {e}")
+            # Fallback bez optymalizacji
+            return self.model.encode(processed_names, show_progress_bar=False)
 
     def find_best_matches(self, archive_files: List[str], image_files: List[str]) -> List[Dict]:
         """
@@ -325,15 +446,26 @@ def get_work_directory_from_config():
 
 class AIFolderProcessor:
     """
-    Klasa do przetwarzania folderów i dodawania danych AI do index.json
+    Klasa do przetwarzania folderów z wykorzystaniem AI
     """
 
-    def __init__(self):
-        self.matcher = SBERTFileMatcher()
+    def __init__(self, enable_hardware_optimization: bool = True):
+        """
+        Inicjalizacja z opcjonalną optymalizacją sprzętową
+        """
+        # Utwórz matcher z optymalizacją sprzętową
+        self.matcher = SBERTFileMatcher(auto_optimize=enable_hardware_optimization)
+        
         # Pobierz folder roboczy z konfiguracji
         self.work_directory = get_work_directory_from_config()
         if not self.work_directory:
             logger.warning("Brak folderu roboczego w konfiguracji")
+        
+        # Loguj informacje o optymalizacji
+        if enable_hardware_optimization and hasattr(self.matcher, 'hardware_config') and self.matcher.hardware_config:
+            optimization_level = self.matcher.hardware_config.get('optimization_level', 'basic')
+            device = self.matcher.hardware_config.get('device', 'cpu').upper()
+            logger.info(f"🚀 AI Procesor zoptymalizowany: {optimization_level} na {device}")
 
     def load_existing_index(self, folder_path: str) -> Dict:
         """
@@ -628,13 +760,28 @@ class AIFolderProcessor:
 
 def main():
     """
-    Funkcja główna - automatycznie pobiera folder roboczy z konfiguracji
+    Funkcja główna z wyświetlaniem informacji o sprzęcie
     """
     print("🤖 AI SBERT File Matcher - Automatyczne przetwarzanie")
     print("=" * 60)
 
+    # Wyświetl informacje o sprzęcie
+    try:
+        from hardware_detector import get_hardware_detector
+        detector = get_hardware_detector()
+        print("\n🔍 WYKRYTE SPRZĘT:")
+        print("-" * 40)
+        print(detector.get_hardware_summary())
+    except ImportError:
+        print("\n⚠️  Moduł wykrywania sprzętu niedostępny")
+        print("💡 Zainstaluj: pip install psutil py-cpuinfo torch")
+    except Exception as e:
+        print(f"\n⚠️  Błąd wykrywania sprzętu: {e}")
+
+    print("\n" + "=" * 60)
+
     # Utwórz procesor i sprawdź konfigurację
-    processor = AIFolderProcessor()
+    processor = AIFolderProcessor(enable_hardware_optimization=True)
 
     if not processor.work_directory:
         print("❌ Brak folderu roboczego w konfiguracji!")
@@ -647,34 +794,37 @@ def main():
         print(f"❌ Folder roboczy nie istnieje: {processor.work_directory}")
         return
 
-    # Zapytaj o tryb przetwarzania
+    # Reszta funkcji bez zmian...
     print("\n🔄 Tryby przetwarzania:")
     print("1. Automatyczne (cały folder roboczy)")
     print("2. Konkretny folder")
-    print("3. Wyjście")
+    print("3. Test wydajności sprzętu")
+    print("4. Wyjście")
 
-    choice = input("\nWybierz opcję (1-3): ").strip()
+    choice = input("\nWybierz opcję (1-4): ").strip()
 
     if choice == "1":
-        # Automatyczne przetwarzanie całego folderu roboczego
         print(f"\n🚀 Rozpoczynam automatyczne przetwarzanie AI...")
         processor.start_ai_processing(print)
-
     elif choice == "2":
-        # Konkretny folder
         test_folder = input("Podaj ścieżkę do konkretnego folderu: ").strip()
         if not test_folder:
             print("❌ Nie podano ścieżki")
             return
-
         if not os.path.exists(test_folder):
             print(f"❌ Folder nie istnieje: {test_folder}")
             return
-
         print(f"🔍 Przetwarzam konkretny folder: {test_folder}")
         processor.process_folder_recursive(test_folder, print)
-
     elif choice == "3":
+        # Test wydajności
+        print("\n🧪 Test wydajności sprzętu...")
+        test_files = [f"test_file_{i}.zip" for i in range(100)]
+        start_time = time.time()
+        embeddings = processor.matcher.calculate_embeddings(test_files)
+        test_time = time.time() - start_time
+        print(f"⏱️  Test 100 plików: {test_time:.2f}s ({100/test_time:.1f} plików/s)")
+    elif choice == "4" or choice == "":
         print("👋 Do widzenia!")
         return
     else:
@@ -682,7 +832,6 @@ def main():
         return
 
     print("\n🎉 Przetwarzanie AI zakończone! Sprawdź pliki index.json w folderach.")
-    print("🔍 Wyszukaj klucze zaczynające się od 'AI_' aby zobaczyć wyniki.")
 
 
 def generate_ai_only_gallery_data(folder_path: str) -> Dict:

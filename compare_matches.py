@@ -28,15 +28,17 @@ def load_index_json(folder_path: str) -> Dict:
         return {}
 
 
-def analyze_folder(folder_path: str) -> Tuple[int, int, int, int]:
+def analyze_folder(folder_path: str) -> Tuple[int, int, int, int, list, list, list, list]:
     """
     Analizuje folder i zwraca statystyki dopasowań
     Zwraca: (liczba_zwykłych_dopasowań, liczba_ai_dopasowań,
-            liczba_plików_bez_podglądu, liczba_obrazów_bez_pary)
+            liczba_plików_bez_podglądu, liczba_obrazów_bez_pary,
+            lista_niedopasowanych_plików, lista_plików_z_podglądami,
+            lista_obrazów_bez_pary, lista_dopasowań_ai)
     """
     data = load_index_json(folder_path)
     if not data:
-        return 0, 0, 0, 0
+        return 0, 0, 0, 0, [], [], [], []
 
     # Liczba dopasowań zwykłym algorytmem
     classic_matches = len(data.get("files_with_previews", []))
@@ -47,10 +49,20 @@ def analyze_folder(folder_path: str) -> Tuple[int, int, int, int]:
     # Liczba plików bez podglądu
     files_without_preview = len(data.get("files_without_previews", []))
 
-    # Liczba obrazów bez pary
-    other_images = len(data.get("other_images", []))
+    # Lista niedopasowanych plików
+    unmatched_files = [file["name"] for file in data.get("files_without_previews", [])]
 
-    return classic_matches, ai_matches, files_without_preview, other_images
+    # Lista plików z podglądami
+    files_with_previews = data.get("files_with_previews", [])
+
+    # Lista obrazów bez pary
+    other_images = data.get("other_images", [])
+    other_images_count = len(other_images)
+
+    # Lista dopasowań AI
+    ai_matches_list = data.get("AI_matches", [])
+
+    return classic_matches, ai_matches, files_without_preview, other_images_count, unmatched_files, files_with_previews, other_images, ai_matches_list
 
 
 def calculate_effectiveness(matches: int, total_files: int) -> float:
@@ -79,7 +91,7 @@ def analyze_work_directory(work_dir: str) -> Dict:
     for root, dirs, files in os.walk(work_dir):
         if "index.json" in files:
             # Analizuj folder
-            classic, ai, no_preview, other = analyze_folder(root)
+            classic, ai, no_preview, other_count, unmatched, with_previews, other_images, ai_matches = analyze_folder(root)
 
             # Dodaj statystyki dla folderu
             rel_path = os.path.relpath(root, work_dir)
@@ -90,7 +102,11 @@ def analyze_work_directory(work_dir: str) -> Dict:
                 "classic_matches": classic,
                 "ai_matches": ai,
                 "files_without_preview": no_preview,
-                "other_images": other,
+                "other_images": other_count,
+                "unmatched_files": unmatched,
+                "files_with_previews": with_previews,
+                "other_images_list": other_images,
+                "ai_matches_list": ai_matches,
                 "classic_effectiveness": calculate_effectiveness(classic, total_files),
                 "ai_effectiveness": calculate_effectiveness(ai, total_files),
                 "improvement_percent": (
@@ -103,7 +119,7 @@ def analyze_work_directory(work_dir: str) -> Dict:
             results["total"]["classic_matches"] += classic
             results["total"]["ai_matches"] += ai
             results["total"]["files_without_preview"] += no_preview
-            results["total"]["other_images"] += other
+            results["total"]["other_images"] += other_count
             results["total"]["folders_analyzed"] += 1
 
     # Oblicz ogólną skuteczność
@@ -181,6 +197,32 @@ def print_results(results: Dict):
             )
             print(f"  Skuteczność AI: {stats['ai_effectiveness']:.1f}%")
             print(f"  Poprawa skuteczności: {stats['improvement_percent']:+.1f}%")
+            
+            # Wyświetl listę plików bez pary
+            if stats["unmatched_files"] or stats["other_images_list"] or stats["ai_matches_list"]:
+                print("\n  Pliki NIE dopasowane:")
+                
+                # Pliki NIE dopasowane przez zwykły algorytm
+                print("\n    Zwykły algorytm NIE dopasował:")
+                if stats["unmatched_files"]:
+                    print("\n      Archiwa bez podglądu:")
+                    for file in sorted(stats["unmatched_files"]):
+                        print(f"        - {file}")
+                if stats["other_images_list"]:
+                    print("\n      Obrazy bez archiwum:")
+                    for file in sorted(stats["other_images_list"], key=lambda x: x["name"]):
+                        print(f"        - {file['name']}")
+
+                # Pliki NIE dopasowane przez AI
+                all_archives = {f["name"] for f in stats["files_with_previews"]} | set(stats["unmatched_files"])
+                ai_matched = {m["archive_file"] for m in stats["ai_matches_list"]}
+                ai_unmatched = all_archives - ai_matched
+
+                if ai_unmatched:
+                    print("\n    AI NIE dopasowało:")
+                    print("\n      Archiwa bez dopasowania AI:")
+                    for file in sorted(ai_unmatched):
+                        print(f"        - {file}")
     else:
         print("\nNie znaleziono folderów z różnicami w dopasowaniach.")
 
@@ -214,11 +256,56 @@ def main():
     # Wyświetl wyniki
     print_results(results)
 
+    # Przygotuj dane do zapisu w formacie zgodnym z prezentacją
+    json_results = {
+        "data_analizy": datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+        "statystyki_ogolne": {
+            "przeanalizowano_folderow": results['total']['folders_analyzed'],
+            "laczna_liczba_dopasowan_zwyklych": results['total']['classic_matches'],
+            "laczna_liczba_dopasowan_ai": results['total']['ai_matches'],
+            "laczna_liczba_plikow_bez_podgladu": results['total']['files_without_preview'],
+            "laczna_liczba_obrazow_bez_pary": results['total']['other_images'],
+            "roznica_ai_zwykly": results['total']['ai_matches'] - results['total']['classic_matches'],
+            "skutecznosc_zwykla": f"{results['total']['classic_effectiveness']:.1f}%",
+            "skutecznosc_ai": f"{results['total']['ai_effectiveness']:.1f}%",
+            "poprawa_skutecznosci": f"{results['total']['improvement_percent']:+.1f}%"
+        },
+        "foldery_z_roznica": {}
+    }
+
+    # Dodaj statystyki dla folderów z różnicami
+    for folder, stats in results["folders"].items():
+        if stats["ai_matches"] != stats["classic_matches"]:
+            # Oblicz pliki NIE dopasowane przez AI
+            all_archives = {f["name"] for f in stats["files_with_previews"]} | set(stats["unmatched_files"])
+            ai_matched = {m["archive_file"] for m in stats["ai_matches_list"]}
+            ai_unmatched = all_archives - ai_matched
+
+            json_results["foldery_z_roznica"][folder] = {
+                "dopasowania_zwykle": stats['classic_matches'],
+                "dopasowania_ai": stats['ai_matches'],
+                "pliki_bez_podgladu": stats['files_without_preview'],
+                "obrazy_bez_pary": stats['other_images'],
+                "roznica_ai_zwykly": stats['ai_matches'] - stats['classic_matches'],
+                "skutecznosc_zwykla": f"{stats['classic_effectiveness']:.1f}%",
+                "skutecznosc_ai": f"{stats['ai_effectiveness']:.1f}%",
+                "poprawa_skutecznosci": f"{stats['improvement_percent']:+.1f}%",
+                "pliki_nie_dopasowane": {
+                    "zwykly_algorytm": {
+                        "archiwa_bez_podgladu": sorted(stats["unmatched_files"]),
+                        "obrazy_bez_archiwum": sorted([f["name"] for f in stats["other_images_list"]])
+                    },
+                    "ai": {
+                        "archiwa_bez_dopasowania": sorted(ai_unmatched)
+                    }
+                }
+            }
+
     # Zapisz wyniki do pliku
     output_file = os.path.join(work_dir, "matches_analysis.json")
     try:
         with open(output_file, "w", encoding="utf-8") as f:
-            json.dump(results, f, indent=4, ensure_ascii=False)
+            json.dump(json_results, f, indent=4, ensure_ascii=False)
         print(f"\nWyniki zapisano do: {output_file}")
     except Exception as e:
         print(f"\nBłąd zapisu wyników: {e}")

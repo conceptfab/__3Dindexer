@@ -1,0 +1,17 @@
+# Podstawowe biblioteki (już obecne)
+sentence-transformers
+numpy
+scikit-learn
+
+# Nowe biblioteki do wykrywania sprzętu
+psutil>=5.9.0
+py-cpuinfo>=9.0.0
+
+# PyTorch z obsługą CUDA/CPU (automatyczne wykrywanie)
+torch>=2.0.0
+torchvision>=0.15.0
+torchaudio>=2.0.0
+
+# Opcjonalne akceleratory Intel
+# mkl>=2023.0.0  # Odkomentuj dla Intel CPU
+# intel-extension-for-pytorch  # Odkomentuj dla Intel GPU 
